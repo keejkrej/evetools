@@ -1,6 +1,6 @@
 "use client";
 
-import { decodeEveStream, type EveAgentEvent, type EveToolEvent } from "@evetools/agent";
+import { decodeEveStream, type EveAgentEvent, type EveToolEvent, type EveTurnStatus } from "@evetools/agent";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Message = {
@@ -9,6 +9,10 @@ type Message = {
   content: string;
   reasoning?: string;
   tools?: EveToolEvent[];
+  turnId?: string;
+  turnStatus?: EveTurnStatus;
+  startedAt?: number;
+  completedAt?: number;
 };
 type Thread = {
   id: string;
@@ -19,9 +23,19 @@ type Thread = {
 };
 type Workspace = { configured: true; name: string; root: string; files: string[] };
 type Panel = { kind: "changes" } | { kind: "file"; path: string };
+type PermissionMode = "ask" | "trusted";
+type Approval = {
+  id: string;
+  threadId: string;
+  kind: "write_file" | "run_command";
+  title: string;
+  detail: string;
+  createdAt: number;
+};
 
 const THREADS_KEY = "evetools-code-threads-v1";
 const ACTIVE_KEY = "evetools-code-active-thread-v1";
+const PERMISSION_KEY = "evetools-code-permission-v1";
 
 const newThread = (): Thread => ({
   id: crypto.randomUUID(),
@@ -41,22 +55,51 @@ export function CodeWorkspace() {
   const [panelContent, setPanelContent] = useState("");
   const [panelLoading, setPanelLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const abortRef = useRef<AbortController | null>(null);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [approvalError, setApprovalError] = useState("");
+  const [threadsHydrated, setThreadsHydrated] = useState(false);
+  const [threadStorageError, setThreadStorageError] = useState("");
+  const turnControllersRef = useRef(new Map<string, AbortController>());
   const timelineRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((thread) => thread.id === activeId) ?? null;
+  const workingCount = threads.filter((thread) => thread.status === "working").length;
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(THREADS_KEY) ?? "[]") as Thread[];
-      const initial = saved.length ? saved : [newThread()];
-      setThreads(initial);
-      setActiveId(localStorage.getItem(ACTIVE_KEY) ?? initial[0].id);
-    } catch {
-      const initial = newThread();
-      setThreads([initial]);
-      setActiveId(initial.id);
-    }
+    setPermissionMode(localStorage.getItem(PERMISSION_KEY) === "trusted" ? "trusted" : "ask");
+    const hydrateThreads = async () => {
+      try {
+        const response = await fetch("/api/threads", { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "Could not load threads.");
+        let initial = body.threads as Thread[];
+        const local = JSON.parse(localStorage.getItem(THREADS_KEY) ?? "[]") as Thread[];
+        if (!initial.length && local.length) {
+          const migration = await fetch("/api/threads", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threads: local.map((thread) => ({ ...thread, status: "idle" })) }),
+          });
+          const migrated = await migration.json();
+          if (!migration.ok) throw new Error(migrated.error ?? "Could not migrate local threads.");
+          initial = migrated.threads as Thread[];
+          localStorage.removeItem(THREADS_KEY);
+        }
+        if (!initial.length) initial = [newThread()];
+        const savedActive = localStorage.getItem(ACTIVE_KEY);
+        setThreads(initial);
+        setActiveId(initial.some((thread) => thread.id === savedActive) ? savedActive! : initial[0].id);
+      } catch (error) {
+        const initial = newThread();
+        setThreads([initial]);
+        setActiveId(initial.id);
+        setThreadStorageError(error instanceof Error ? error.message : "Thread storage unavailable.");
+      } finally {
+        setThreadsHydrated(true);
+      }
+    };
+    void hydrateThreads();
     void fetch("/api/workspace")
       .then(async (response) => {
         const body = await response.json();
@@ -66,13 +109,53 @@ export function CodeWorkspace() {
       .catch((error: Error) => setWorkspaceError(error.message));
   }, []);
 
+  useEffect(() => () => {
+    for (const controller of turnControllersRef.current.values()) controller.abort();
+    turnControllersRef.current.clear();
+  }, []);
+
   useEffect(() => {
-    if (!threads.length) return;
-    localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
-  }, [threads]);
+    if (!threadsHydrated || !threads.length) return;
+    const timer = window.setTimeout(() => {
+      void Promise.all(threads.map(async (thread) => {
+        const response = await fetch(`/api/threads/${thread.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ thread }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error ?? `Could not save ${thread.title}.`);
+        }
+      })).then(() => setThreadStorageError(""), (error: Error) => setThreadStorageError(error.message));
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [threads, threadsHydrated]);
   useEffect(() => {
     if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
   }, [activeId]);
+  useEffect(() => {
+    localStorage.setItem(PERMISSION_KEY, permissionMode);
+  }, [permissionMode]);
+  useEffect(() => {
+    if (!activeId || active?.status !== "working" || permissionMode !== "ask") {
+      setApprovals([]);
+      return;
+    }
+    let disposed = false;
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/approvals?threadId=${encodeURIComponent(activeId)}`, { cache: "no-store" });
+        const body = await response.json();
+        if (!disposed && response.ok) setApprovals(body.approvals as Approval[]);
+      } catch {
+        // A transient polling failure must not interrupt the active turn.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 500);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [activeId, active?.status, permissionMode]);
   useEffect(() => {
     timelineRef.current?.scrollTo({ top: timelineRef.current.scrollHeight, behavior: "smooth" });
   }, [active?.messages]);
@@ -106,8 +189,19 @@ export function CodeWorkspace() {
     setInput("");
   };
 
+  const stopThread = useCallback((id: string) => {
+    turnControllersRef.current.get(id)?.abort();
+  }, []);
+
   const removeThread = (id: string) => {
     if (!confirm("Delete this thread?")) return;
+    stopThread(id);
+    void fetch(`/api/threads/${id}`, { method: "DELETE" }).then(async (response) => {
+      if (!response.ok && response.status !== 404) {
+        const body = await response.json().catch(() => null);
+        setThreadStorageError(body?.error ?? "Could not delete thread.");
+      }
+    }).catch((error: Error) => setThreadStorageError(error.message));
     setThreads((current) => {
       const remaining = current.filter((thread) => thread.id !== id);
       if (id === activeId) {
@@ -119,12 +213,26 @@ export function CodeWorkspace() {
     });
   };
 
+  async function decideApproval(id: string, approved: boolean) {
+    setApprovals((current) => current.filter((approval) => approval.id !== id));
+    const response = await fetch("/api/approvals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, approved }),
+    });
+    if (!response.ok && response.status !== 404) {
+      const body = await response.json().catch(() => null);
+      setApprovalError(body?.error ?? "Could not submit approval decision.");
+    }
+  }
+
   async function send() {
     const prompt = input.trim();
     if (!prompt || !active || active.status === "working") return;
     const threadId = active.id;
+    const turnId = crypto.randomUUID();
     const user: Message = { id: crypto.randomUUID(), role: "user", content: prompt };
-    const assistant: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
+    const assistant: Message = { id: crypto.randomUUID(), role: "assistant", content: "", turnId, turnStatus: "running", startedAt: Date.now() };
     const history = [...active.messages, user];
     setInput("");
     updateThread(threadId, (thread) => ({
@@ -135,15 +243,19 @@ export function CodeWorkspace() {
       updatedAt: Date.now(),
     }));
     const controller = new AbortController();
-    abortRef.current = controller;
+    turnControllersRef.current.set(threadId, controller);
     let text = "";
     let reasoning = "";
+    let finalStatus: EveTurnStatus | null = null;
     try {
       const response = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "auto",
+          threadId,
+          turnId,
+          permissionMode,
           messages: history.map(({ role, content }) => ({ role, content })),
         }),
         signal: controller.signal,
@@ -156,12 +268,21 @@ export function CodeWorkspace() {
         if (event.type === "error") throw new Error(event.message);
         if (event.type === "text") text += event.delta;
         if (event.type === "reasoning") reasoning += event.delta;
+        if (event.type === "lifecycle" && event.status !== "running") finalStatus = event.status;
         updateThread(threadId, (thread) => ({
           ...thread,
+          status: event.type === "lifecycle" && event.status === "failed" ? "error" : event.type === "lifecycle" && event.status !== "running" ? "idle" : thread.status,
           messages: thread.messages.map((message) => {
             if (message.id !== assistant.id) return message;
             if (event.type === "text") return { ...message, content: text };
             if (event.type === "reasoning") return { ...message, reasoning };
+            if (event.type === "lifecycle") return {
+              ...message,
+              turnId: event.turnId,
+              turnStatus: event.status,
+              startedAt: event.status === "running" ? event.at : message.startedAt,
+              completedAt: event.status === "running" ? undefined : event.at,
+            };
             const tools = message.tools ?? [];
             const index = tools.findIndex((tool) => tool.id === event.id);
             return { ...message, tools: index < 0 ? [...tools, event] : tools.map((tool, i) => i === index ? { ...tool, ...event } : tool) };
@@ -169,20 +290,32 @@ export function CodeWorkspace() {
           updatedAt: Date.now(),
         }));
       }
-      updateThread(threadId, (thread) => ({ ...thread, status: "idle", updatedAt: Date.now() }));
+      if (!finalStatus) {
+        updateThread(threadId, (thread) => ({
+          ...thread,
+          status: "idle",
+          messages: thread.messages.map((message) => message.id === assistant.id ? { ...message, turnStatus: "completed", completedAt: Date.now() } : message),
+          updatedAt: Date.now(),
+        }));
+      }
       if (panel?.kind === "changes") void openPanel({ kind: "changes" });
     } catch (error) {
       const stopped = controller.signal.aborted;
       updateThread(threadId, (thread) => ({
         ...thread,
         status: stopped ? "idle" : "error",
-        messages: thread.messages.map((message) => message.id === assistant.id && !message.content
-          ? { ...message, content: stopped ? "Stopped." : `Error: ${error instanceof Error ? error.message : "Eve failed."}` }
+        messages: thread.messages.map((message) => message.id === assistant.id
+          ? {
+              ...message,
+              content: message.content || (stopped ? "Stopped." : `Error: ${error instanceof Error ? error.message : "Eve failed."}`),
+              turnStatus: stopped ? "stopped" : "failed",
+              completedAt: Date.now(),
+            }
           : message),
         updatedAt: Date.now(),
       }));
     } finally {
-      abortRef.current = null;
+      if (turnControllersRef.current.get(threadId) === controller) turnControllersRef.current.delete(threadId);
     }
   }
 
@@ -221,11 +354,13 @@ export function CodeWorkspace() {
                   <span className={`thread-status ${thread.status}`} />
                   <span><strong>{thread.title}</strong><small>{new Date(thread.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small></span>
                 </button>
-                <button className="delete-thread" onClick={() => removeThread(thread.id)} aria-label="Delete thread">×</button>
+                {thread.status === "working"
+                  ? <button className="delete-thread stop-thread" onClick={() => stopThread(thread.id)} aria-label={`Stop ${thread.title}`}>■</button>
+                  : <button className="delete-thread" onClick={() => removeThread(thread.id)} aria-label="Delete thread">×</button>}
               </div>
             ))}
           </div>
-          <div className="sidebar-footer"><span>Local workspace</span><span className="online">● Eve ready</span></div>
+          <div className="sidebar-footer"><span>Local workspace</span><span className={workingCount ? "working-summary" : "online"}>{workingCount ? `● ${workingCount} working` : "● Eve ready"}</span></div>
         </>}
       </aside>
 
@@ -240,9 +375,27 @@ export function CodeWorkspace() {
           ) : active.messages.map((message) => <MessageView key={message.id} message={message} />)}
         </div>
         <div className="composer-wrap">
+          {threadStorageError && <div className="approval-error">Thread persistence: {threadStorageError}<button onClick={() => setThreadStorageError("")}>×</button></div>}
+          {approvalError && <div className="approval-error">{approvalError}<button onClick={() => setApprovalError("")}>×</button></div>}
+          {approvals.map((approval) => (
+            <div className="approval-card" key={approval.id}>
+              <div><span className="approval-kind">Approval required</span><strong>{approval.title}</strong><code>{approval.detail}</code></div>
+              <div className="approval-actions"><button onClick={() => void decideApproval(approval.id, false)}>Deny</button><button className="approve" onClick={() => void decideApproval(approval.id, true)}>Approve</button></div>
+            </div>
+          ))}
           <div className="composer">
             <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="Ask Eve to work on this codebase…" rows={3} />
-            <div className="composer-actions"><span>{workspace?.root ?? "Connecting…"}</span>{active?.status === "working" ? <button className="send-button stop" onClick={() => abortRef.current?.abort()}>■</button> : <button className="send-button" disabled={!input.trim() || !workspace} onClick={() => void send()}>↑</button>}</div>
+            <div className="composer-actions">
+              <span>{workspace?.root ?? "Connecting…"}</span>
+              <label className="permission-mode" title="Ask requires approval before writes and commands">
+                <span>Permissions</span>
+                <select value={permissionMode} onChange={(event) => setPermissionMode(event.target.value as PermissionMode)} disabled={active?.status === "working"}>
+                  <option value="ask">Ask</option>
+                  <option value="trusted">Trusted</option>
+                </select>
+              </label>
+              {active?.status === "working" ? <button className="send-button stop" onClick={() => stopThread(active.id)} aria-label="Stop active turn">■</button> : <button className="send-button" disabled={!input.trim() || !workspace} onClick={() => void send()}>↑</button>}
+            </div>
           </div>
         </div>
       </section>
@@ -258,9 +411,16 @@ export function CodeWorkspace() {
   );
 }
 
+function turnStatusLabel(status: EveTurnStatus, startedAt?: number, completedAt?: number) {
+  if (status === "running") return "Working";
+  const duration = startedAt && completedAt ? ` · ${Math.max(0, (completedAt - startedAt) / 1000).toFixed(1)}s` : "";
+  return `${status[0].toUpperCase()}${status.slice(1)}${duration}`;
+}
+
 function MessageView({ message }: { message: Message }) {
   return <article className={`message ${message.role}`}>
     <div className="message-label">{message.role === "user" ? "You" : "Eve"}</div>
+    {message.role === "assistant" && message.turnStatus && <div className={`turn-status ${message.turnStatus}`}>{turnStatusLabel(message.turnStatus, message.startedAt, message.completedAt)}</div>}
     {message.reasoning && <details><summary>Reasoning</summary><p>{message.reasoning}</p></details>}
     {message.tools?.map((tool) => {
       const skillName = tool.name === "load_skill" && tool.input && typeof tool.input === "object" && "name" in tool.input

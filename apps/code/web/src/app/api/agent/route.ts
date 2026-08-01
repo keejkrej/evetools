@@ -2,6 +2,7 @@ import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { cursor } from "ai-sdk-provider-cursor-sdk";
 import { createEveStreamResponse } from "@evetools/agent";
 import { z } from "zod";
+import { requestApproval } from "@/lib/approvals";
 import { formatCodeSkills, listCodeSkills, loadCodeSkill } from "@/lib/skills";
 import {
   listWorkspaceFiles,
@@ -20,6 +21,9 @@ const requestSchema = z.object({
     content: z.string().min(1).max(100_000),
   })).min(1).max(100),
   model: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._:/-]+$/).default("auto"),
+  threadId: z.string().uuid(),
+  turnId: z.string().uuid(),
+  permissionMode: z.enum(["ask", "trusted"]).default("ask"),
 });
 
 export async function POST(request: Request) {
@@ -81,6 +85,15 @@ export async function POST(request: Request) {
         description: "Create or fully replace a UTF-8 text file relative to the workspace root.",
         inputSchema: z.object({ path: z.string().min(1), content: z.string().max(500_000) }),
         execute: async ({ path, content }) => {
+          if (parsed.data.permissionMode === "ask") {
+            const approved = await requestApproval({
+              threadId: parsed.data.threadId,
+              kind: "write_file",
+              title: `Write ${path}`,
+              detail: `${content.length.toLocaleString()} characters will be written`,
+            }, request.signal);
+            if (!approved) return { path, written: false, denied: true };
+          }
           await writeWorkspaceFile(path, content);
           return { path, written: true };
         },
@@ -88,12 +101,23 @@ export async function POST(request: Request) {
       run_command: tool({
         description: "Run a shell command in the workspace. Use for search, git inspection, tests, formatting, and builds.",
         inputSchema: z.object({ command: z.string().min(1).max(4_000) }),
-        execute: async ({ command }) => runWorkspaceCommand(command),
+        execute: async ({ command }) => {
+          if (parsed.data.permissionMode === "ask") {
+            const approved = await requestApproval({
+              threadId: parsed.data.threadId,
+              kind: "run_command",
+              title: "Run shell command",
+              detail: command,
+            }, request.signal);
+            if (!approved) return { output: "Command denied by the user.", exitCode: 126, denied: true };
+          }
+          return runWorkspaceCommand(command);
+        },
       }),
     },
     stopWhen: stepCountIs(20),
     abortSignal: request.signal,
   });
 
-  return createEveStreamResponse(result.fullStream, { signal: request.signal });
+  return createEveStreamResponse(result.fullStream, { signal: request.signal, turnId: parsed.data.turnId });
 }

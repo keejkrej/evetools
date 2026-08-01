@@ -1,4 +1,5 @@
 export type EveAgentStatus = "idle" | "running" | "stopped" | "failed";
+export type EveTurnStatus = "running" | "completed" | "stopped" | "failed";
 
 export type EveToolEvent = {
   type: "tool";
@@ -13,6 +14,7 @@ export type EveAgentEvent =
   | { type: "text"; delta: string }
   | { type: "reasoning"; delta: string }
   | EveToolEvent
+  | { type: "lifecycle"; turnId: string; status: EveTurnStatus; at: number }
   | { type: "error"; message: string };
 
 export async function* decodeEveStream(
@@ -42,7 +44,7 @@ export async function* decodeEveStream(
 
 export function createEveStreamResponse(
   source: AsyncIterable<unknown>,
-  options: { signal?: AbortSignal; onFinally?: () => void } = {},
+  options: { signal?: AbortSignal; turnId?: string; onFinally?: () => void } = {},
 ): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -50,6 +52,9 @@ export function createEveStreamResponse(
       const send = (event: EveAgentEvent) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
+
+      let failed = false;
+      if (options.turnId) send({ type: "lifecycle", turnId: options.turnId, status: "running", at: Date.now() });
 
       try {
         for await (const part of source) {
@@ -77,14 +82,18 @@ export function createEveStreamResponse(
               status: item.type === "tool-result" ? "complete" : "error",
             });
           } else if (item.type === "error") {
+            failed = true;
             send({ type: "error", message: "The Eve agent stream failed." });
           }
         }
       } catch {
-        if (!options.signal?.aborted) {
-          send({ type: "error", message: "The Eve agent stream failed." });
-        }
+        failed = true;
+        if (!options.signal?.aborted) send({ type: "error", message: "The Eve agent stream failed." });
       } finally {
+        if (options.turnId) {
+          const status = options.signal?.aborted ? "stopped" : failed ? "failed" : "completed";
+          send({ type: "lifecycle", turnId: options.turnId, status, at: Date.now() });
+        }
         options.onFinally?.();
         controller.close();
       }
