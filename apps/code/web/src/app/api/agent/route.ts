@@ -8,6 +8,8 @@ import {
   listWorkspaceFiles,
   readWorkspaceFile,
   runWorkspaceCommand,
+  searchWorkspaceFiles,
+  workspaceStatus,
   workspaceRoot,
   writeWorkspaceFile,
 } from "@/lib/workspace";
@@ -81,6 +83,16 @@ export async function POST(request: Request) {
         description: "List files in the configured workspace.",
         inputSchema: z.object({}),
         execute: async () => ({ files: await listWorkspaceFiles() }),
+      }),
+      search_files: tool({
+        description: "Search workspace text files and return structured path, line, column, and preview matches.",
+        inputSchema: z.object({ query: z.string().min(1).max(500), limit: z.number().int().min(1).max(200).default(100) }),
+        execute: async ({ query, limit }) => ({ query, matches: await searchWorkspaceFiles(query, limit) }),
+      }),
+      git_status: tool({
+        description: "Return structured Git index and working-tree status for changed files.",
+        inputSchema: z.object({}),
+        execute: async () => ({ changes: await workspaceStatus() }),
       }),
       read_file: tool({
         description: "Read a UTF-8 text file relative to the workspace root.",

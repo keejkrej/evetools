@@ -18,6 +18,8 @@ Multiple threads can work simultaneously. Starting a turn no longer locks naviga
 
 Active turns are owned by the Evecode server rather than by one browser response. Turn events receive monotonic sequence numbers and remain buffered for ten minutes after completion. A disconnected or reloaded client resumes from the last event cursor persisted with its assistant message, while explicit stop actions cancel the server-owned turn.
 
+Eve has structured `search_files` and `git_status` tools for routine workspace discovery. Search results include paths, line and column positions, and bounded previews. The Changes panel annotates workspace files with their Git index and working-tree states.
+
 The composer defaults to **Ask** permission mode. In this mode, Eve pauses and requests explicit approval before replacing a file or running a shell command. **Trusted** mode allows those tools to execute without prompting and should only be used for tasks and workspaces you trust.
 
 Evecode also discovers coding skills from `~/.agents/skills` by default. Only skill names and descriptions enter the system prompt. Eve loads the complete `SKILL.md`, or a referenced file confined to that skill's directory, through `load_skill` only when the task matches. Set `EVECODE_SKILLS_ROOT` to override the location for development or testing.

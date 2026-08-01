@@ -22,7 +22,8 @@ type Thread = {
   updatedAt: number;
   status: "idle" | "working" | "error";
 };
-type Workspace = { configured: true; name: string; root: string; files: string[] };
+type WorkspaceChange = { path: string; index: string; workingTree: string; originalPath?: string };
+type Workspace = { configured: true; name: string; root: string; files: string[]; changes: WorkspaceChange[] };
 type Panel = { kind: "changes" } | { kind: "file"; path: string };
 type PermissionMode = "ask" | "trusted";
 type Approval = {
@@ -55,6 +56,7 @@ export function CodeWorkspace() {
   const [panel, setPanel] = useState<Panel | null>({ kind: "changes" });
   const [panelContent, setPanelContent] = useState("");
   const [panelLoading, setPanelLoading] = useState(false);
+  const [workspaceChanges, setWorkspaceChanges] = useState<WorkspaceChange[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -107,6 +109,7 @@ export function CodeWorkspace() {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error ?? "Workspace unavailable.");
         setWorkspace(body as Workspace);
+        setWorkspaceChanges((body as Workspace).changes ?? []);
       })
       .catch((error: Error) => setWorkspaceError(error.message));
   }, []);
@@ -175,6 +178,7 @@ export function CodeWorkspace() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not load workspace data.");
       setPanelContent(next.kind === "changes" ? body.diff : body.content);
+      if (next.kind === "changes") setWorkspaceChanges(body.changes ?? []);
     } catch (error) {
       setPanelContent(error instanceof Error ? error.message : "Could not load workspace data.");
     } finally {
@@ -384,6 +388,7 @@ export function CodeWorkspace() {
   }
 
   const groupedFiles = useMemo(() => workspace?.files ?? [], [workspace]);
+  const changesByPath = useMemo(() => new Map(workspaceChanges.map((change) => [change.path, change])), [workspaceChanges]);
 
   if (workspaceError) {
     return (
@@ -467,7 +472,11 @@ export function CodeWorkspace() {
       {panel && <aside className="context-panel">
         <header><strong>{panel.kind === "changes" ? "Changes" : panel.path}</strong><button className="icon-button" onClick={() => setPanel(null)}>×</button></header>
         <div className="panel-body">
-          {panel.kind === "changes" && <div className="file-browser"><p className="eyebrow">Files</p>{groupedFiles.map((file) => <button key={file} onClick={() => void openPanel({ kind: "file", path: file })}>{file}</button>)}</div>}
+          {panel.kind === "changes" && <div className="file-browser"><p className="eyebrow">Files</p>{groupedFiles.map((file) => {
+            const change = changesByPath.get(file);
+            const status = change ? `${change.index}${change.workingTree}`.trim() || "?" : "";
+            return <button key={file} onClick={() => void openPanel({ kind: "file", path: file })}><span>{file}</span>{status && <b>{status}</b>}</button>;
+          })}</div>}
           <pre className="code-view">{panelLoading ? "Loading…" : panelContent}</pre>
         </div>
       </aside>}

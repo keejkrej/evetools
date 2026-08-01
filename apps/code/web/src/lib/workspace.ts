@@ -80,6 +80,50 @@ export async function runWorkspaceCommand(command: string): Promise<{ output: st
   }
 }
 
+export type WorkspaceSearchResult = { path: string; line: number; column: number; preview: string };
+export type WorkspaceChange = { path: string; index: string; workingTree: string; originalPath?: string };
+
+export async function searchWorkspaceFiles(query: string, limit = 100): Promise<WorkspaceSearchResult[]> {
+  const needle = query.toLocaleLowerCase();
+  const results: WorkspaceSearchResult[] = [];
+  for (const relativePath of await listWorkspaceFiles()) {
+    if (results.length >= limit) break;
+    let content: string;
+    try {
+      content = await readWorkspaceFile(relativePath);
+    } catch {
+      continue;
+    }
+    if (content.includes("\0")) continue;
+    const lines = content.split("\n");
+    for (let index = 0; index < lines.length && results.length < limit; index += 1) {
+      const column = lines[index].toLocaleLowerCase().indexOf(needle);
+      if (column >= 0) results.push({
+        path: relativePath,
+        line: index + 1,
+        column: column + 1,
+        preview: lines[index].trim().slice(0, 300),
+      });
+    }
+  }
+  return results;
+}
+
+export async function workspaceStatus(): Promise<WorkspaceChange[]> {
+  const result = await runWorkspaceCommand("git status --porcelain=v1 -z --untracked-files=all");
+  if (result.exitCode !== 0) return [];
+  const entries = result.output.split("\0");
+  const changes: WorkspaceChange[] = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry || entry.length < 4) continue;
+    const change: WorkspaceChange = { path: entry.slice(3), index: entry[0], workingTree: entry[1] };
+    if (entry[0] === "R" || entry[0] === "C") change.originalPath = entries[++index];
+    changes.push(change);
+  }
+  return changes;
+}
+
 export async function workspaceDiff(): Promise<string> {
   const result = await runWorkspaceCommand("git diff --no-ext-diff --stat && git diff --no-ext-diff -- . ':(exclude)pnpm-lock.yaml'");
   return result.output || "No uncommitted changes.";
