@@ -1,0 +1,21 @@
+{
+  "name": "evetools",
+  "private": true,
+  "packageManager": "pnpm@11.18.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "check": "turbo lint test build typecheck",
+    "dev:chat": "turbo dev --filter=@evetools/chat",
+    "dev:chat-mobile": "turbo start --filter=@evetools/chat-mobile",
+    "dev:draw": "turbo dev --filter=@evetools/draw",
+    "dev:draw-desktop": "turbo dev --filter=@evetools/draw-desktop",
+    "dev:code": "turbo dev --filter=@evetools/code"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.8",
+    "typescript": "^5"
+  }
+}

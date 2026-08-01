@@ -1,0 +1,15 @@
+{
+  "name": "@evetools/draw-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "devDependencies": {
+    "@native-sdk/cli": "0.7.0"
+  },
+  "scripts": {
+    "validate": "native validate app.zon",
+    "stage": "./scripts/stage.sh",
+    "build": "./scripts/build-launcher.sh",
+    "dev": "./scripts/dev.sh",
+    "package": "./scripts/package.sh"
+  }
+}

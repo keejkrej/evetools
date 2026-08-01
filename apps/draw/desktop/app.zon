@@ -1,0 +1,25 @@
+.{
+    .id = "com.evedraw.desktop",
+    .name = "Evedraw",
+    .display_name = "Evedraw",
+    .description = "An agentic visual canvas.",
+    .version = "0.1.0",
+    .icons = .{ "assets/icon.svg" },
+    .platforms = .{ "macos" },
+    .permissions = .{ "network" },
+    .capabilities = .{ "webview", "network", "open_url", "url_schemes" },
+    .security = .{
+        .navigation = .{
+            .allowed_origins = .{ "http://127.0.0.1:43117" },
+            .external_links = .{ .action = "open_system_browser", .allowed_urls = .{ "*" } },
+        },
+    },
+    .web_engine = "system",
+    .url_schemes = .{
+        .{ .scheme = "evedraw" },
+        .{ .scheme = "com.evedraw.desktop" },
+    },
+    .windows = .{
+        .{ .label = "main", .title = "Evedraw", .width = 1180, .height = 780, .restore_state = true },
+    },
+}

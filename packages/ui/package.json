@@ -1,0 +1,47 @@
+{
+  "name": "@evetools/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./ui/*": "./src/ui/*.tsx",
+    "./ai-elements/*": "./src/ai-elements/*.tsx",
+    "./utils": "./src/utils.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.6.0",
+    "@radix-ui/react-use-controllable-state": "^1.2.6",
+    "@streamdown/cjk": "^1.0.3",
+    "@streamdown/code": "^1.1.1",
+    "@streamdown/math": "^1.0.2",
+    "@streamdown/mermaid": "^1.0.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "lucide-react": "^1.28.0",
+    "motion": "^12.43.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shiki": "^4.3.1",
+    "sonner": "^2.0.7",
+    "streamdown": "^2.5.0",
+    "tailwind-merge": "^3.6.0",
+    "use-stick-to-bottom": "^1.1.6",
+    "ai": "^7.0.42",
+    "nanoid": "^6.0.0"
+  },
+  "peerDependencies": {
+    "next": ">=16",
+    "next-themes": ">=0.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "next": "16.2.12",
+    "next-themes": "^0.4.6",
+    "typescript": "^5"
+  }
+}
