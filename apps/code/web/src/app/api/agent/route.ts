@@ -1,9 +1,9 @@
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { cursor } from "ai-sdk-provider-cursor-sdk";
-import { createEveStreamResponse } from "@evetools/agent";
 import { z } from "zod";
 import { requestApproval } from "@/lib/approvals";
 import { formatCodeSkills, listCodeSkills, loadCodeSkill } from "@/lib/skills";
+import { prepareTurn, subscribeToTurn } from "@/lib/turns";
 import {
   listWorkspaceFiles,
   readWorkspaceFile,
@@ -46,6 +46,12 @@ export async function POST(request: Request) {
     content: message.content,
   }));
   const skillCatalog = formatCodeSkills(await listCodeSkills());
+  let turn;
+  try {
+    turn = prepareTurn(parsed.data.turnId, parsed.data.threadId);
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Could not create turn." }, { status: 409 });
+  }
 
   const result = streamText({
     model: cursor(parsed.data.model, {
@@ -91,7 +97,7 @@ export async function POST(request: Request) {
               kind: "write_file",
               title: `Write ${path}`,
               detail: `${content.length.toLocaleString()} characters will be written`,
-            }, request.signal);
+            }, turn.signal);
             if (!approved) return { path, written: false, denied: true };
           }
           await writeWorkspaceFile(path, content);
@@ -108,7 +114,7 @@ export async function POST(request: Request) {
               kind: "run_command",
               title: "Run shell command",
               detail: command,
-            }, request.signal);
+            }, turn.signal);
             if (!approved) return { output: "Command denied by the user.", exitCode: 126, denied: true };
           }
           return runWorkspaceCommand(command);
@@ -116,8 +122,9 @@ export async function POST(request: Request) {
       }),
     },
     stopWhen: stepCountIs(20),
-    abortSignal: request.signal,
+    abortSignal: turn.signal,
   });
 
-  return createEveStreamResponse(result.fullStream, { signal: request.signal, turnId: parsed.data.turnId });
+  turn.start(result.fullStream);
+  return subscribeToTurn(parsed.data.turnId) ?? Response.json({ error: "Could not subscribe to turn." }, { status: 500 });
 }

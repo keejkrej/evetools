@@ -13,6 +13,7 @@ type Message = {
   turnStatus?: EveTurnStatus;
   startedAt?: number;
   completedAt?: number;
+  eventCursor?: number;
 };
 type Thread = {
   id: string;
@@ -61,6 +62,7 @@ export function CodeWorkspace() {
   const [threadsHydrated, setThreadsHydrated] = useState(false);
   const [threadStorageError, setThreadStorageError] = useState("");
   const turnControllersRef = useRef(new Map<string, AbortController>());
+  const reconnectingTurnsRef = useRef(new Set<string>());
   const timelineRef = useRef<HTMLDivElement>(null);
 
   const active = threads.find((thread) => thread.id === activeId) ?? null;
@@ -190,8 +192,11 @@ export function CodeWorkspace() {
   };
 
   const stopThread = useCallback((id: string) => {
+    const thread = threads.find((item) => item.id === id);
+    const turnId = [...(thread?.messages ?? [])].reverse().find((message) => message.turnStatus === "running")?.turnId;
+    if (turnId) void fetch(`/api/turns/${turnId}`, { method: "DELETE" });
     turnControllersRef.current.get(id)?.abort();
-  }, []);
+  }, [threads]);
 
   const removeThread = (id: string) => {
     if (!confirm("Delete this thread?")) return;
@@ -226,6 +231,83 @@ export function CodeWorkspace() {
     }
   }
 
+  const consumeTurn = useCallback(async (
+    response: Response,
+    threadId: string,
+    assistantId: string,
+    initial: { text?: string; reasoning?: string } = {},
+  ): Promise<EveTurnStatus | null> => {
+    if (!response.ok || !response.body) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error ?? "Eve turn is unavailable.");
+    }
+    let text = initial.text ?? "";
+    let reasoning = initial.reasoning ?? "";
+    let finalStatus: EveTurnStatus | null = null;
+    let streamError = "";
+    for await (const event of decodeEveStream(response.body)) {
+      if (event.type === "error") {
+        streamError = event.message;
+        continue;
+      }
+      if (event.type === "text") text += event.delta;
+      if (event.type === "reasoning") reasoning += event.delta;
+      if (event.type === "lifecycle" && event.status !== "running") finalStatus = event.status;
+      const sequence = "sequence" in event && typeof event.sequence === "number" ? event.sequence : undefined;
+      updateThread(threadId, (thread) => ({
+        ...thread,
+        status: event.type === "lifecycle" && event.status === "failed" ? "error" : event.type === "lifecycle" && event.status !== "running" ? "idle" : thread.status,
+        messages: thread.messages.map((message) => {
+          if (message.id !== assistantId) return message;
+          const cursor = sequence === undefined ? message.eventCursor : Math.max(message.eventCursor ?? 0, sequence);
+          if (event.type === "text") return { ...message, content: text, eventCursor: cursor };
+          if (event.type === "reasoning") return { ...message, reasoning, eventCursor: cursor };
+          if (event.type === "lifecycle") return {
+            ...message,
+            turnId: event.turnId,
+            turnStatus: event.status,
+            startedAt: event.status === "running" ? event.at : message.startedAt,
+            completedAt: event.status === "running" ? undefined : event.at,
+            eventCursor: cursor,
+          };
+          const tools = message.tools ?? [];
+          const index = tools.findIndex((tool) => tool.id === event.id);
+          return { ...message, eventCursor: cursor, tools: index < 0 ? [...tools, event] : tools.map((tool, i) => i === index ? { ...tool, ...event } : tool) };
+        }),
+        updatedAt: Date.now(),
+      }));
+    }
+    if (streamError) throw new Error(streamError);
+    return finalStatus;
+  }, [updateThread]);
+
+  useEffect(() => {
+    if (!threadsHydrated) return;
+    for (const thread of threads) {
+      const message = [...thread.messages].reverse().find((item) => item.turnStatus === "running" && item.turnId);
+      if (!message?.turnId || reconnectingTurnsRef.current.has(message.turnId) || turnControllersRef.current.has(thread.id)) continue;
+      reconnectingTurnsRef.current.add(message.turnId);
+      const controller = new AbortController();
+      turnControllersRef.current.set(thread.id, controller);
+      const after = message.eventCursor ?? 0;
+      void fetch(`/api/turns/${message.turnId}/stream?after=${after}`, { signal: controller.signal })
+        .then((response) => consumeTurn(response, thread.id, message.id, { text: message.content, reasoning: message.reasoning }))
+        .catch((error: Error) => {
+          if (controller.signal.aborted) return;
+          updateThread(thread.id, (current) => ({
+            ...current,
+            status: "error",
+            messages: current.messages.map((item) => item.id === message.id ? { ...item, turnStatus: "failed", completedAt: Date.now(), content: item.content || `Error: ${error.message}` } : item),
+            updatedAt: Date.now(),
+          }));
+        })
+        .finally(() => {
+          reconnectingTurnsRef.current.delete(message.turnId!);
+          if (turnControllersRef.current.get(thread.id) === controller) turnControllersRef.current.delete(thread.id);
+        });
+    }
+  }, [consumeTurn, threads, threadsHydrated, updateThread]);
+
   async function send() {
     const prompt = input.trim();
     if (!prompt || !active || active.status === "working") return;
@@ -235,19 +317,27 @@ export function CodeWorkspace() {
     const assistant: Message = { id: crypto.randomUUID(), role: "assistant", content: "", turnId, turnStatus: "running", startedAt: Date.now() };
     const history = [...active.messages, user];
     setInput("");
-    updateThread(threadId, (thread) => ({
-      ...thread,
-      title: thread.messages.length ? thread.title : prompt.slice(0, 48),
+    const runningThread: Thread = {
+      ...active,
+      title: active.messages.length ? active.title : prompt.slice(0, 48),
       messages: [...history, assistant],
       status: "working",
       updatedAt: Date.now(),
-    }));
+    };
+    updateThread(threadId, () => runningThread);
     const controller = new AbortController();
     turnControllersRef.current.set(threadId, controller);
-    let text = "";
-    let reasoning = "";
-    let finalStatus: EveTurnStatus | null = null;
     try {
+      const persisted = await fetch(`/api/threads/${threadId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread: runningThread }),
+        signal: controller.signal,
+      });
+      if (!persisted.ok) {
+        const body = await persisted.json().catch(() => null);
+        throw new Error(body?.error ?? "Could not persist the turn before starting.");
+      }
       const response = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -260,54 +350,28 @@ export function CodeWorkspace() {
         }),
         signal: controller.signal,
       });
-      if (!response.ok || !response.body) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Eve could not start.");
-      }
-      for await (const event of decodeEveStream(response.body)) {
-        if (event.type === "error") throw new Error(event.message);
-        if (event.type === "text") text += event.delta;
-        if (event.type === "reasoning") reasoning += event.delta;
-        if (event.type === "lifecycle" && event.status !== "running") finalStatus = event.status;
-        updateThread(threadId, (thread) => ({
-          ...thread,
-          status: event.type === "lifecycle" && event.status === "failed" ? "error" : event.type === "lifecycle" && event.status !== "running" ? "idle" : thread.status,
-          messages: thread.messages.map((message) => {
-            if (message.id !== assistant.id) return message;
-            if (event.type === "text") return { ...message, content: text };
-            if (event.type === "reasoning") return { ...message, reasoning };
-            if (event.type === "lifecycle") return {
-              ...message,
-              turnId: event.turnId,
-              turnStatus: event.status,
-              startedAt: event.status === "running" ? event.at : message.startedAt,
-              completedAt: event.status === "running" ? undefined : event.at,
-            };
-            const tools = message.tools ?? [];
-            const index = tools.findIndex((tool) => tool.id === event.id);
-            return { ...message, tools: index < 0 ? [...tools, event] : tools.map((tool, i) => i === index ? { ...tool, ...event } : tool) };
-          }),
-          updatedAt: Date.now(),
-        }));
-      }
-      if (!finalStatus) {
-        updateThread(threadId, (thread) => ({
-          ...thread,
-          status: "idle",
-          messages: thread.messages.map((message) => message.id === assistant.id ? { ...message, turnStatus: "completed", completedAt: Date.now() } : message),
-          updatedAt: Date.now(),
-        }));
-      }
+      const finalStatus = await consumeTurn(response, threadId, assistant.id);
+      if (!finalStatus) throw new Error("Turn stream ended without a completion event.");
       if (panel?.kind === "changes") void openPanel({ kind: "changes" });
     } catch (error) {
+      let failure = error;
       const stopped = controller.signal.aborted;
+      if (!stopped) {
+        try {
+          const replay = await fetch(`/api/turns/${turnId}/stream`, { signal: controller.signal });
+          const finalStatus = await consumeTurn(replay, threadId, assistant.id);
+          if (finalStatus) return;
+        } catch (reconnectError) {
+          failure = reconnectError;
+        }
+      }
       updateThread(threadId, (thread) => ({
         ...thread,
         status: stopped ? "idle" : "error",
         messages: thread.messages.map((message) => message.id === assistant.id
           ? {
               ...message,
-              content: message.content || (stopped ? "Stopped." : `Error: ${error instanceof Error ? error.message : "Eve failed."}`),
+              content: message.content || (stopped ? "Stopped." : `Error: ${failure instanceof Error ? failure.message : "Eve failed."}`),
               turnStatus: stopped ? "stopped" : "failed",
               completedAt: Date.now(),
             }

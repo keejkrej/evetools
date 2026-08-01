@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { isTurnRunning } from "./turns";
 import { workspaceRoot } from "./workspace";
 
 const toolSchema = z.object({
@@ -24,6 +25,7 @@ export const messageSchema = z.object({
   turnStatus: z.enum(["running", "completed", "stopped", "failed"]).optional(),
   startedAt: z.number().int().nonnegative().optional(),
   completedAt: z.number().int().nonnegative().optional(),
+  eventCursor: z.number().int().nonnegative().optional(),
 });
 
 export const threadSchema = z.object({
@@ -62,13 +64,13 @@ async function readStore(): Promise<ThreadStore> {
     const threads = z.array(threadSchema).parse(parsed?.threads).map((thread) => {
       if (thread.status !== "working" && !thread.messages.some((message) => message.turnStatus === "running")) return thread;
       const interruptedAt = Date.now();
-      return {
-        ...thread,
-        status: "idle" as const,
-        messages: thread.messages.map((message) => message.turnStatus === "running"
+      const messages = thread.messages.map((message) => (
+        message.turnStatus === "running" && (!message.turnId || !isTurnRunning(message.turnId))
           ? { ...message, turnStatus: "stopped" as const, completedAt: interruptedAt }
-          : message),
-      };
+          : message
+      ));
+      const hasRunningTurn = messages.some((message) => message.turnStatus === "running");
+      return { ...thread, status: hasRunningTurn ? "working" as const : "idle" as const, messages };
     });
     return { version: 1, threads };
   } catch (error) {

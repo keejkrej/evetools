@@ -14,7 +14,9 @@ The configured workspace is intentionally the only project root available to Eve
 
 Threads are stored per workspace under `~/.evecode/workspaces` using atomic file replacement. Set `EVECODE_DATA_ROOT` to use another application-data directory. Existing browser-local threads are imported automatically when the server-side store is empty. Every assistant turn records a stable turn ID, lifecycle status, start time, completion time, and duration. Turns interrupted by a process or app restart are marked as stopped when restored.
 
-Multiple threads can work simultaneously. Starting a turn no longer locks navigation or other threads; each running thread owns its own cancellation controller and can be stopped independently from the sidebar or composer.
+Multiple threads can work simultaneously. Starting a turn no longer locks navigation or other threads; each running thread can be stopped independently from the sidebar or composer.
+
+Active turns are owned by the Evecode server rather than by one browser response. Turn events receive monotonic sequence numbers and remain buffered for ten minutes after completion. A disconnected or reloaded client resumes from the last event cursor persisted with its assistant message, while explicit stop actions cancel the server-owned turn.
 
 The composer defaults to **Ask** permission mode. In this mode, Eve pauses and requests explicit approval before replacing a file or running a shell command. **Trusted** mode allows those tools to execute without prompting and should only be used for tasks and workspaces you trust.
 
