@@ -45,6 +45,7 @@ pnpm dev:chat-mobile
 pnpm dev:draw
 pnpm dev:draw-desktop
 pnpm dev:code
+pnpm dev:code-desktop
 ```
 
 Turbo also supports `pnpm build`, `pnpm lint`, `pnpm test`, and `pnpm check` across the workspace.

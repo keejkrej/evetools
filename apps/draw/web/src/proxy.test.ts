@@ -27,21 +27,21 @@ describe("proxy public routes", () => {
     "bypasses Clerk middleware for %s",
     async (pathname) => {
       const response = await proxy(
-        new NextRequest(`http://127.0.0.1:43117${pathname}`),
+        new NextRequest(`http://evedraw.localhost:3000${pathname}`),
         event,
       );
 
-      expect(response.status).toBe(200);
+      expect(response?.status).toBe(200);
       expect(protectedMiddleware).not.toHaveBeenCalled();
     },
   );
 
   it("runs Clerk middleware for protected routes", async () => {
-    const request = new NextRequest("http://127.0.0.1:43117/");
+    const request = new NextRequest("http://evedraw.localhost:3000/");
 
     const response = await proxy(request, event);
 
-    expect(response.status).toBe(204);
+    expect(response?.status).toBe(204);
     expect(protectedMiddleware).toHaveBeenCalledWith(request, event);
   });
 });

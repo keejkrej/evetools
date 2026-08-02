@@ -1,15 +1,7 @@
 # Evedraw desktop
 
-The native launcher packages the Evedraw Next.js app, validates `~/.evedraw/.env`, starts its standalone server on loopback, and embeds it in a persistent WKWebView. `app.zon` is pinned to Native SDK 0.7.0.
+Evedraw desktop hosts the production Next.js standalone output inside Electron's Node process through the adjacent `next-electron-rsc` fork. Renderer requests are intercepted and dispatched to Next in-process; the app does not spawn a Node server or listen on a loopback port.
 
-Useful commands from the repository root:
+`pnpm dev:draw-desktop` runs the Electron development host. `pnpm --filter @evetools/draw-desktop build` creates the platform directory bundle in `dist/`.
 
-```bash
-pnpm dev:evedraw-desktop
-pnpm --filter @evetools/draw-desktop stage
-pnpm --filter @evetools/draw-desktop validate
-pnpm --filter @evetools/draw-desktop build
-pnpm --filter @evetools/draw-desktop package
-```
-
-Packaging produces `apps/draw/desktop/dist/Evedraw.app`. Signing credentials are deliberately external; replace the final ad-hoc signature with hardened-runtime Developer ID signing and notarization for distribution.
+Desktop configuration is loaded from `~/.evedraw/.env`. Clerk sign-in runs within the Electron origin.

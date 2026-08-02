@@ -1,0 +1,26 @@
+appId: com.evedraw.desktop
+productName: Evedraw
+asar: false
+directories:
+  output: dist
+  buildResources: assets
+files:
+  - build/**/*
+extraResources:
+  - from: ../web/.next/standalone
+    to: standalone
+  - from: ../web/.next/static
+    to: standalone/apps/draw/web/.next/static
+  - from: ../web/public
+    to: standalone/apps/draw/web/public
+protocols:
+  - name: Evedraw
+    schemes: [evedraw]
+win:
+  target: dir
+mac:
+  category: public.app-category.graphics-design
+  target: dir
+linux:
+  category: Graphics
+  target: dir

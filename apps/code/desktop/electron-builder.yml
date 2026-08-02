@@ -1,0 +1,20 @@
+appId: com.evetools.evecode
+productName: Evecode
+asar: false
+directories:
+  output: dist
+files:
+  - build/**/*
+extraResources:
+  - from: ../web/.next/standalone
+    to: standalone
+  - from: ../web/.next/static
+    to: standalone/apps/code/web/.next/static
+win:
+  target: dir
+mac:
+  category: public.app-category.developer-tools
+  target: dir
+linux:
+  category: Development
+  target: dir

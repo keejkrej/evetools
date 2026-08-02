@@ -1,5 +1,5 @@
 # Evecode desktop
 
-The native desktop seam for `@evetools/code-desktop`. It will own filesystem, workspace, terminal, and child-process adapters while presenting the Next.js interface from `apps/code/web`.
+Evecode desktop hosts the production Next.js standalone output inside Electron's Node process through the adjacent `next-electron-rsc` fork. Renderer requests are intercepted and dispatched to Next in-process; the app does not spawn a Node server or listen on a loopback port.
 
-This package intentionally does not reuse Draw’s native wrapper: coding requires a distinct permission model and native interface.
+`pnpm dev:code-desktop` runs the Electron development host. `pnpm --filter @evetools/code-desktop build` creates the platform directory bundle in `dist/`.

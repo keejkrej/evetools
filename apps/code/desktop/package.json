@@ -1,15 +1,25 @@
 {
   "name": "@evetools/code-desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
+  "main": "build/index.js",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "clean": "node -e \"require('fs').rmSync('build',{recursive:true,force:true});require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "dev": "cross-env NODE_ENV=development tsc-watch --noClear --onSuccess \"electron .\" --project tsconfig-electron.json",
+    "build": "pnpm clean && pnpm --dir ../web build && pnpm build:main && electron-builder --config electron-builder.yml",
+    "build:main": "tsc --project tsconfig-electron.json",
+    "typecheck": "tsc --project tsconfig-electron.json --noEmit"
+  },
+  "dependencies": {
+    "next-electron-rsc": "file:../../../../next-electron-rsc/lib"
   },
   "devDependencies": {
+    "@types/node": "^22",
+    "cross-env": "^7.0.3",
+    "electron": "^36.3.2",
+    "electron-builder": "^26.0.15",
+    "tsc-watch": "^6.2.1",
     "typescript": "^5"
   }
 }

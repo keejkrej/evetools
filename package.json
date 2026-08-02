@@ -12,7 +12,8 @@
     "dev:chat-mobile": "turbo start --filter=@evetools/chat-mobile",
     "dev:draw": "turbo dev --filter=@evetools/draw",
     "dev:draw-desktop": "turbo dev --filter=@evetools/draw-desktop",
-    "dev:code": "turbo dev --filter=@evetools/code"
+    "dev:code": "turbo dev --filter=@evetools/code",
+    "dev:code-desktop": "turbo dev --filter=@evetools/code-desktop"
   },
   "devDependencies": {
     "turbo": "^2.5.8",

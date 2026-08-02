@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import LoginPage from "./[[...rest]]/page";
 
 function findRedirectUrl(node: ReactNode): string | undefined {
@@ -23,25 +23,8 @@ function findRedirectUrl(node: ReactNode): string | undefined {
   }
 }
 
-describe("desktop login", () => {
-  const originalDesktop = process.env.EVEDRAW_DESKTOP;
-
-  afterEach(() => {
-    if (originalDesktop === undefined) delete process.env.EVEDRAW_DESKTOP;
-    else process.env.EVEDRAW_DESKTOP = originalDesktop;
-  });
-
-  it("returns OAuth authentication to the registered app scheme", () => {
-    process.env.EVEDRAW_DESKTOP = "1";
-
-    expect(findRedirectUrl(LoginPage())).toBe(
-      "http://127.0.0.1:43117/desktop-auth/callback",
-    );
-  });
-
-  it("keeps browser authentication on the web origin", () => {
-    delete process.env.EVEDRAW_DESKTOP;
-
+describe("login", () => {
+  it("returns authentication to the current intercepted origin", () => {
     expect(findRedirectUrl(LoginPage())).toBe("/");
   });
 });
