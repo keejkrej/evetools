@@ -124,7 +124,17 @@ export async function workspaceStatus(): Promise<WorkspaceChange[]> {
   return changes;
 }
 
-export async function workspaceDiff(): Promise<string> {
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export async function workspaceDiff(relativePath?: string): Promise<string> {
+  if (relativePath) {
+    resolveWorkspacePath(relativePath);
+    const result = await runWorkspaceCommand(`git diff --no-ext-diff -- ${shellQuote(relativePath)}`);
+    if (result.exitCode !== 0 || !result.output.trim()) return `No uncommitted changes for ${relativePath}.`;
+    return result.output;
+  }
   const result = await runWorkspaceCommand("git diff --no-ext-diff --stat && git diff --no-ext-diff -- . ':(exclude)pnpm-lock.yaml'");
-  return result.output || "No uncommitted changes.";
+  return result.exitCode === 0 ? (result.output || "No uncommitted changes.") : "No uncommitted changes.";
 }

@@ -9,6 +9,7 @@ import {
   readWorkspaceFile,
   runWorkspaceCommand,
   searchWorkspaceFiles,
+  workspaceDiff,
   workspaceStatus,
   workspaceRoot,
   writeWorkspaceFile,
@@ -93,6 +94,11 @@ export async function POST(request: Request) {
         description: "Return structured Git index and working-tree status for changed files.",
         inputSchema: z.object({}),
         execute: async () => ({ changes: await workspaceStatus() }),
+      }),
+      git_diff: tool({
+        description: "Return a unified Git diff of uncommitted changes. Omit path for a full workspace diff, or pass a path to scope the diff to one file.",
+        inputSchema: z.object({ path: z.string().min(1).optional() }),
+        execute: async ({ path }) => ({ diff: await workspaceDiff(path) }),
       }),
       read_file: tool({
         description: "Read a UTF-8 text file relative to the workspace root.",

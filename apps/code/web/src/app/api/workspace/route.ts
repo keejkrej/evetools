@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const search = url.searchParams.get("search");
     if (file) return Response.json({ file, content: await readWorkspaceFile(file) });
     if (search) return Response.json({ query: search, matches: await searchWorkspaceFiles(search) });
-    if (view === "diff") return Response.json({ diff: await workspaceDiff(), changes: await workspaceStatus() });
+    if (view === "diff") return Response.json({ diff: await workspaceDiff(file ?? undefined), changes: await workspaceStatus() });
     if (view === "status") return Response.json({ changes: await workspaceStatus() });
     const root = workspaceRoot();
     return Response.json({

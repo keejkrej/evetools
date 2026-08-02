@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveWorkspacePath, searchWorkspaceFiles, workspaceStatus, writeWorkspaceFile } from "./workspace";
+import { resolveWorkspacePath, searchWorkspaceFiles, workspaceDiff, workspaceStatus, writeWorkspaceFile } from "./workspace";
 
 let root = "";
 const originalRoot = process.env.EVECODE_WORKSPACE_ROOT;
@@ -62,5 +62,31 @@ describe("workspace path confinement", () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+});
+
+describe("workspace diff", () => {
+  it("reports no changes outside a repository", async () => {
+    await expect(workspaceDiff()).resolves.toBe("No uncommitted changes.");
+  });
+
+  it("scopes the diff to a single path and rejects traversal", async () => {
+    await writeWorkspaceFile("README.md", "# project\n");
+    await expect(workspaceDiff("README.md")).resolves.toBe("No uncommitted changes for README.md.");
+    await expect(workspaceDiff("../escape.md")).rejects.toThrow("Path escapes the configured workspace.");
+  });
+
+  it("returns a diff for a tracked file when inside a repository", async () => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const exec = promisify(execFile);
+    await exec("git", ["init"], { cwd: root });
+    await writeWorkspaceFile("src/changed.ts", "export const x = 1;\n");
+    await exec("git", ["add", "src/changed.ts"], { cwd: root });
+    await writeWorkspaceFile("src/changed.ts", "export const x = 2;\n");
+    const diff = await workspaceDiff("src/changed.ts");
+    expect(diff).toContain("src/changed.ts");
+    expect(diff).toContain("-export const x = 1");
+    expect(diff).toContain("+export const x = 2");
   });
 });
