@@ -24,7 +24,11 @@ function findRedirectUrl(node: ReactNode): string | undefined {
 }
 
 describe("login", () => {
-  it("returns authentication to the current intercepted origin", () => {
-    expect(findRedirectUrl(LoginPage())).toBe("/");
+  it("returns web authentication to the current origin", async () => {
+    expect(findRedirectUrl(await LoginPage({ searchParams: Promise.resolve({}) }))).toBe("/");
+  });
+
+  it("preserves desktop state in the external callback", async () => {
+    expect(findRedirectUrl(await LoginPage({ searchParams: Promise.resolve({ desktop: "1", state: "nonce" }) }))).toBe("/desktop-auth/callback?state=nonce");
   });
 });

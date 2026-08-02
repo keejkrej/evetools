@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { app, BrowserWindow, protocol, shell } from "electron";
@@ -29,6 +30,49 @@ const { createInterceptor, localhostUrl } = createHandler({
 
 let mainWindow: BrowserWindow | undefined;
 let stopInterceptor: (() => void) | undefined;
+let pendingAuthState: string | undefined;
+let pendingCallback: string | undefined;
+
+function startExternalAuthentication() {
+  const configured = process.env.EVEDRAW_WEB_URL;
+  if (!configured) throw new Error("EVEDRAW_WEB_URL is required for desktop sign-in.");
+  const url = new URL("/login", configured);
+  if (url.protocol !== "https:") throw new Error("EVEDRAW_WEB_URL must use HTTPS.");
+  pendingAuthState = randomBytes(32).toString("base64url");
+  url.searchParams.set("desktop", "1");
+  url.searchParams.set("state", pendingAuthState);
+  void shell.openExternal(url.toString());
+}
+
+function handleAuthCallback(value: string) {
+  const callback = new URL(value);
+  const state = callback.searchParams.get("state");
+  const token = callback.searchParams.get("token");
+  if (!state || !token || state !== pendingAuthState) return;
+  pendingAuthState = undefined;
+  if (!mainWindow) { pendingCallback = value; return; }
+  void mainWindow.loadURL(`${localhostUrl}/desktop-auth/complete?token=${encodeURIComponent(token)}`);
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function callbackFromArgs(args: string[]) {
+  return args.find((value) => value.startsWith("evedraw://callback"));
+}
+
+if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient("evedraw", process.execPath, [path.resolve(process.argv[1])]);
+else app.setAsDefaultProtocolClient("evedraw");
+
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
+app.on("second-instance", (_event, commandLine) => {
+  const callback = callbackFromArgs(commandLine);
+  if (callback) handleAuthCallback(callback);
+});
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  if (url.startsWith("evedraw://callback")) handleAuthCallback(url);
+});
 
 async function createWindow() {
   const window = new BrowserWindow({
@@ -40,6 +84,12 @@ async function createWindow() {
   });
 
   stopInterceptor = await createInterceptor({ session: window.webContents.session });
+  window.webContents.on("will-navigate", (event, url) => {
+    if (url === "evedraw-auth://start") {
+      event.preventDefault();
+      startExternalAuthentication();
+    }
+  });
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
@@ -53,6 +103,11 @@ async function createWindow() {
 
   mainWindow = window;
   await window.loadURL(`${localhostUrl}/login`);
+  if (pendingCallback) {
+    const callback = pendingCallback;
+    pendingCallback = undefined;
+    handleAuthCallback(callback);
+  }
 }
 
 app.whenReady().then(createWindow);
