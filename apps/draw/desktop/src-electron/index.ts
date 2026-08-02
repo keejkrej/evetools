@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, protocol, shell } from "electron";
 import { createHandler } from "next-electron-rsc";
 
 const development = !app.isPackaged;
@@ -19,7 +19,7 @@ if (!development) Object.assign(process.env, { NODE_ENV: "production" });
 const webDirectory = development
   ? path.resolve(app.getAppPath(), "../web")
   : path.join(process.resourcesPath, "standalone/apps/draw/web");
-const { createInterceptor, localhostUrl } = createHandler({
+const { createHttpServer, createInterceptor, localhostUrl } = createHandler({
   dev: development,
   dir: webDirectory,
   hostname: "evedraw.localhost",
@@ -32,12 +32,12 @@ let mainWindow: BrowserWindow | undefined;
 let stopInterceptor: (() => void) | undefined;
 let pendingAuthState: string | undefined;
 let pendingCallback: string | undefined;
+let authServer: { close: () => Promise<void>; url: string } | undefined;
 
-function startExternalAuthentication() {
-  const configured = process.env.EVEDRAW_WEB_URL;
-  if (!configured) throw new Error("EVEDRAW_WEB_URL is required for desktop sign-in.");
-  const url = new URL("/login", configured);
-  if (url.protocol !== "https:") throw new Error("EVEDRAW_WEB_URL must use HTTPS.");
+async function startExternalAuthentication() {
+  await authServer?.close();
+  authServer = await createHttpServer({ hostname: "127.0.0.1", port: 43117 });
+  const url = new URL("/login", authServer.url);
   pendingAuthState = randomBytes(32).toString("base64url");
   url.searchParams.set("desktop", "1");
   url.searchParams.set("state", pendingAuthState);
@@ -50,6 +50,8 @@ function handleAuthCallback(value: string) {
   const token = callback.searchParams.get("token");
   if (!state || !token || state !== pendingAuthState) return;
   pendingAuthState = undefined;
+  void authServer?.close();
+  authServer = undefined;
   if (!mainWindow) { pendingCallback = value; return; }
   void mainWindow.loadURL(`${localhostUrl}/desktop-auth/complete?token=${encodeURIComponent(token)}`);
   mainWindow.show();
@@ -87,7 +89,9 @@ async function createWindow() {
   window.webContents.on("will-navigate", (event, url) => {
     if (url === "evedraw-auth://start") {
       event.preventDefault();
-      startExternalAuthentication();
+      void startExternalAuthentication().catch((error) => {
+        dialog.showErrorBox("Evedraw sign-in could not start", error instanceof Error ? error.message : String(error));
+      });
     }
   });
   window.once("ready-to-show", () => window.show());
@@ -115,5 +119,6 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
 app.on("window-all-closed", () => {
+  void authServer?.close();
   if (process.platform !== "darwin") app.quit();
 });

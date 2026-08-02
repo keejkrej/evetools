@@ -32,7 +32,7 @@ const protectedRouteMiddleware = clerkMiddleware(
   },
   {
     authorizedParties: process.env.EVEDRAW_DESKTOP === "1"
-      ? ["http://evedraw.localhost:3000"]
+      ? ["http://evedraw.localhost:3000", "http://127.0.0.1:43117"]
       : undefined,
     contentSecurityPolicy: {},
     publishableKey:
