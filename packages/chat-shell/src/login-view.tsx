@@ -2,9 +2,15 @@
 
 import { SignIn, useAuth } from "@clerk/nextjs";
 import Image from "next/image";
+import * as React from "react";
 
 export function LoginView({ desktopShell, redirectUrl }: { desktopShell: boolean; redirectUrl: string }) {
   const { isLoaded, isSignedIn } = useAuth();
+
+  React.useEffect(() => {
+    if (desktopShell || !isLoaded || !isSignedIn) return;
+    window.location.replace(redirectUrl);
+  }, [desktopShell, isLoaded, isSignedIn, redirectUrl]);
 
   if (desktopShell) {
     return (
