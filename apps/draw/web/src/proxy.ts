@@ -5,6 +5,7 @@ import { verifyDesktopSession } from "@/lib/desktop-session";
 const isPublicRoute = createRouteMatcher([
   "/api/readiness",
   "/desktop-auth/complete",
+  "/desktop-auth/status",
   "/login(.*)",
   "/unauthorized",
 ]);

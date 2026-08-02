@@ -34,6 +34,40 @@ let pendingAuthState: string | undefined;
 let pendingCallback: string | undefined;
 let authServer: { close: () => Promise<void>; url: string } | undefined;
 
+const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function completeAuthentication(state: string, token: string) {
+  if (state !== pendingAuthState) return;
+  pendingAuthState = undefined;
+  void authServer?.close();
+  authServer = undefined;
+  const callback = `evedraw://callback?state=${encodeURIComponent(state)}&token=${encodeURIComponent(token)}`;
+  if (!mainWindow) { pendingCallback = callback; return; }
+  void mainWindow.loadURL(`${localhostUrl}/desktop-auth/complete?token=${encodeURIComponent(token)}`);
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+async function pollExternalAuthentication(state: string, serverUrl: string) {
+  for (let attempt = 0; attempt < 600 && pendingAuthState === state; attempt += 1) {
+    try {
+      const status = new URL("/desktop-auth/status", serverUrl);
+      status.searchParams.set("state", state);
+      const response = await fetch(status);
+      if (response.ok && response.status === 200) {
+        const value = await response.json() as { token?: string };
+        if (value.token) {
+          completeAuthentication(state, value.token);
+          return;
+        }
+      }
+    } catch {
+      // The short-lived server may still be starting or closing.
+    }
+    await delay(500);
+  }
+}
+
 async function startExternalAuthentication() {
   await authServer?.close();
   authServer = await createHttpServer({ hostname: "127.0.0.1", port: 43117 });
@@ -41,6 +75,7 @@ async function startExternalAuthentication() {
   pendingAuthState = randomBytes(32).toString("base64url");
   url.searchParams.set("desktop", "1");
   url.searchParams.set("state", pendingAuthState);
+  void pollExternalAuthentication(pendingAuthState, authServer.url);
   void shell.openExternal(url.toString());
 }
 
@@ -49,13 +84,7 @@ function handleAuthCallback(value: string) {
   const state = callback.searchParams.get("state");
   const token = callback.searchParams.get("token");
   if (!state || !token || state !== pendingAuthState) return;
-  pendingAuthState = undefined;
-  void authServer?.close();
-  authServer = undefined;
-  if (!mainWindow) { pendingCallback = value; return; }
-  void mainWindow.loadURL(`${localhostUrl}/desktop-auth/complete?token=${encodeURIComponent(token)}`);
-  mainWindow.show();
-  mainWindow.focus();
+  completeAuthentication(state, token);
 }
 
 function callbackFromArgs(args: string[]) {

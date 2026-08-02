@@ -23,7 +23,7 @@ const event = {} as Parameters<typeof proxy>[1];
 describe("proxy public routes", () => {
   beforeEach(() => protectedMiddleware.mockClear());
 
-  it.each(["/api/readiness", "/login", "/login/sso-callback", "/unauthorized"])(
+  it.each(["/api/readiness", "/desktop-auth/status", "/login", "/login/sso-callback", "/unauthorized"])(
     "bypasses Clerk middleware for %s",
     async (pathname) => {
       const response = await proxy(
