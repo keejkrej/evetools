@@ -396,9 +396,8 @@ export function CodeWorkspace() {
         <div className="setup-card">
           <span className="brand-mark">E</span>
           <p className="eyebrow">Evecode setup</p>
-          <h1>Choose a workspace</h1>
-          <p>Set <code>EVECODE_WORKSPACE_ROOT</code> to an absolute local project path, then restart Evecode.</p>
-          <pre>EVECODE_WORKSPACE_ROOT=/path/to/project pnpm dev:code</pre>
+          <h1>Workspace unavailable</h1>
+          <p>Evecode uses <code>~/.evetools/code</code> by default. Set <code>EVECODE_WORKSPACE_ROOT</code> to use another directory.</p>
           <p className="error-text">{workspaceError}</p>
         </div>
       </main>

@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { promises as fs } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -8,8 +10,11 @@ const IGNORED = new Set([".git", ".next", ".turbo", "node_modules", "dist", "bui
 
 export function workspaceRoot(): string {
   const configured = process.env.EVECODE_WORKSPACE_ROOT;
-  if (!configured) throw new Error("EVECODE_WORKSPACE_ROOT is not configured.");
-  return path.resolve(configured);
+  if (configured) return path.resolve(configured);
+
+  const root = path.join(homedir(), ".evetools", "code");
+  mkdirSync(root, { recursive: true });
+  return root;
 }
 
 export function resolveWorkspacePath(relativePath: string): string {

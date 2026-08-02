@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveWorkspacePath, searchWorkspaceFiles, workspaceDiff, workspaceStatus, writeWorkspaceFile } from "./workspace";
+import { resolveWorkspacePath, searchWorkspaceFiles, workspaceDiff, workspaceRoot, workspaceStatus, writeWorkspaceFile } from "./workspace";
 
 let root = "";
 const originalRoot = process.env.EVECODE_WORKSPACE_ROOT;
@@ -19,6 +19,11 @@ afterEach(async () => {
 });
 
 describe("workspace path confinement", () => {
+  it("defaults to the shared Evecode directory", () => {
+    delete process.env.EVECODE_WORKSPACE_ROOT;
+    expect(workspaceRoot()).toBe(path.join(homedir(), ".evetools", "code"));
+  });
+
   it("resolves paths inside the configured root", () => {
     expect(resolveWorkspacePath("src/index.ts")).toBe(path.join(root, "src/index.ts"));
   });

@@ -6,7 +6,7 @@ The Next.js interface for `@evetools/code`. It provides a Codex-style local codi
 
 ```bash
 cp .env.example .env
-# Set CURSOR_API_KEY and an absolute EVECODE_WORKSPACE_ROOT.
+# Set CURSOR_API_KEY. EVECODE_WORKSPACE_ROOT optionally overrides ~/.evetools/code.
 pnpm dev:code
 ```
 
@@ -24,4 +24,4 @@ The composer defaults to **Ask** permission mode. In this mode, Eve pauses and r
 
 Evecode also discovers coding skills from `~/.agents/skills` by default. Only skill names and descriptions enter the system prompt. Eve loads the complete `SKILL.md`, or a referenced file confined to that skill's directory, through `load_skill` only when the task matches. Set `EVECODE_SKILLS_ROOT` to override the location for development or testing.
 
-This is local-development software: the coding tools can modify files and run shell commands inside `EVECODE_WORKSPACE_ROOT`. Do not expose this server publicly.
+This is local-development software: the coding tools can modify files and run shell commands inside `~/.evetools/code`, or `EVECODE_WORKSPACE_ROOT` when configured. Do not expose this server publicly.
