@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider } from "@evetools/chat-shell/theme-provider";
 import { TooltipProvider } from "@evetools/ui/ui/tooltip";
 import { Toaster } from "@evetools/ui/ui/sonner";
 import "./globals.css";

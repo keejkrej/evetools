@@ -17,6 +17,12 @@ for (const app of ["chat", "draw"]) {
     "workspace:*",
     `${app} must consume the shared shell package`,
   );
+
+  const layout = await read(`apps/${app}/web/src/app/layout.tsx`);
+  assert.match(layout, /@evetools\/chat-shell\/theme-provider/);
+
+  const loginView = await read(`apps/${app}/web/src/app/login/login-view.tsx`);
+  assert.match(loginView, /@evetools\/chat-shell\/login-view/);
 }
 
 const chatWrapper = await read("apps/chat/web/src/components/chat.tsx");

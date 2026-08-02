@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/chat.tsx",
-    "./globals.css": "./src/globals.css"
+    "./globals.css": "./src/globals.css",
+    "./login-view": "./src/login-view.tsx",
+    "./theme-provider": "./src/theme-provider.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
