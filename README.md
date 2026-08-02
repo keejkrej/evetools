@@ -36,10 +36,8 @@ Node.js 22.13+ and pnpm are required.
 
 ```bash
 pnpm install
-cp apps/chat/web/.env.example apps/chat/web/.env.local
-cp apps/draw/web/.env.example apps/draw/web/.env.local
-cp apps/code/web/.env.example apps/code/web/.env.local
-# Set EVECODE_WORKSPACE_ROOT to the local project Evecode may access.
+cp .env.example .env
+# Add shared credentials and set EVECODE_WORKSPACE_ROOT to the local project Evecode may access.
 pnpm dev:chat
 pnpm dev:chat-mobile
 pnpm dev:draw
@@ -49,5 +47,7 @@ pnpm dev:code-desktop
 ```
 
 Turbo also supports `pnpm build`, `pnpm lint`, `pnpm test`, and `pnpm check` across the workspace.
+
+Root development commands load the repository-level `.env`. Packaged desktop apps load the same configuration contract from `~/.evetools/.env` so identity and provider credentials are shared between Evedraw and Evecode.
 
 Evecode's current coding tools can read and write files and execute shell commands inside `EVECODE_WORKSPACE_ROOT`. Run it locally and do not expose its Next.js server publicly.

@@ -4,4 +4,4 @@ Evedraw desktop hosts the production Next.js standalone output inside Electron's
 
 `pnpm dev:draw-desktop` runs the Electron development host. `pnpm --filter @evetools/draw-desktop build` creates the platform directory bundle in `dist/`.
 
-Desktop configuration is loaded from `~/.evedraw/.env`. Clerk sign-in runs within the Electron origin.
+During development, configuration is loaded from the repository-root `.env`. Packaged desktop apps share `~/.evetools/.env`. Clerk sign-in runs within the Electron origin.

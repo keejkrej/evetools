@@ -5,7 +5,7 @@ The Next.js interface for `@evetools/code`. It provides a Codex-style local codi
 ## Run locally
 
 ```bash
-cp apps/code/web/.env.example apps/code/web/.env.local
+cp .env.example .env
 # Set CURSOR_API_KEY and an absolute EVECODE_WORKSPACE_ROOT.
 pnpm dev:code
 ```

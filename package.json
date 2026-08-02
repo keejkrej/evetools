@@ -3,17 +3,17 @@
   "private": true,
   "packageManager": "pnpm@11.18.0",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",
     "check": "turbo lint test build typecheck",
-    "dev:chat": "turbo dev --filter=@evetools/chat",
-    "dev:chat-mobile": "turbo start --filter=@evetools/chat-mobile",
-    "dev:draw": "turbo dev --filter=@evetools/draw",
-    "dev:draw-desktop": "turbo dev --filter=@evetools/draw-desktop",
-    "dev:code": "turbo dev --filter=@evetools/code",
-    "dev:code-desktop": "turbo dev --filter=@evetools/code-desktop"
+    "dev:chat": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/chat",
+    "dev:chat-mobile": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo start --filter=@evetools/chat-mobile",
+    "dev:draw": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/draw",
+    "dev:draw-desktop": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/draw-desktop",
+    "dev:code": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/code",
+    "dev:code-desktop": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/code-desktop"
   },
   "devDependencies": {
     "turbo": "^2.5.8",

@@ -4,28 +4,16 @@ import path from "node:path";
 import { app, BrowserWindow, protocol, shell } from "electron";
 import { createHandler } from "next-electron-rsc";
 
-function loadDesktopEnvironment() {
-  const envFile = path.join(os.homedir(), ".evedraw", ".env");
-  if (!fs.existsSync(envFile)) return;
+const development = !app.isPackaged;
+const environmentFile = development
+  ? path.resolve(app.getAppPath(), "../../..", ".env")
+  : path.join(os.homedir(), ".evetools", ".env");
 
-  for (const sourceLine of fs.readFileSync(envFile, "utf8").split(/\r?\n/)) {
-    const line = sourceLine.trim().replace(/^export\s+/, "");
-    if (!line || line.startsWith("#")) continue;
-    const separator = line.indexOf("=");
-    if (separator < 1) continue;
-    const key = line.slice(0, separator).trim();
-    let value = line.slice(separator + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    if (process.env[key] === undefined) process.env[key] = value;
-  }
+if (fs.existsSync(environmentFile)) {
+  process.loadEnvFile(environmentFile);
 }
 
-loadDesktopEnvironment();
 process.env.EVEDRAW_DESKTOP = "1";
-
-const development = !app.isPackaged;
 if (!development) Object.assign(process.env, { NODE_ENV: "production" });
 const webDirectory = development
   ? path.resolve(app.getAppPath(), "../web")
