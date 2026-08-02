@@ -1,0 +1,32 @@
+{
+  "name": "@evetools/chat-shell",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/chat.tsx",
+    "./globals.css": "./src/globals.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^7.6.3",
+    "@evetools/ui": "workspace:*",
+    "@lobehub/icons": "^5.15.0",
+    "lucide-react": "^1.28.0",
+    "next": "16.2.12",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "sonner": "^2.0.7",
+    "swr": "^2.4.2",
+    "shadcn": "^4.16.0",
+    "streamdown": "^2.5.0",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "typescript": "^5"
+  }
+}

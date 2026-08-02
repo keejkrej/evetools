@@ -79,6 +79,9 @@ importers:
       '@evetools/agent':
         specifier: workspace:*
         version: link:../../../packages/agent
+      '@evetools/chat-shell':
+        specifier: workspace:*
+        version: link:../../../packages/chat-shell
       '@evetools/ui':
         specifier: workspace:*
         version: link:../../../packages/ui
@@ -308,6 +311,9 @@ importers:
       '@evetools/agent':
         specifier: workspace:*
         version: link:../../../packages/agent
+      '@evetools/chat-shell':
+        specifier: workspace:*
+        version: link:../../../packages/chat-shell
       '@evetools/ui':
         specifier: workspace:*
         version: link:../../../packages/ui
@@ -426,6 +432,55 @@ importers:
 
   packages/agent:
     devDependencies:
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
+  packages/chat-shell:
+    dependencies:
+      '@clerk/nextjs':
+        specifier: ^7.6.3
+        version: 7.6.3(next@16.2.12(@babel/core@7.29.7(supports-color@8.1.1))(babel-plugin-macros@3.1.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(sass@1.51.0))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@evetools/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@lobehub/icons':
+        specifier: ^5.15.0
+        version: 5.15.0(@lobehub/ui@5.24.0)(@types/react@19.2.18)(antd@6.5.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(supports-color@8.1.1)
+      lucide-react:
+        specifier: ^1.28.0
+        version: 1.28.0(react@19.2.4)
+      next:
+        specifier: 16.2.12
+        version: 16.2.12(@babel/core@7.29.7(supports-color@8.1.1))(babel-plugin-macros@3.1.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(sass@1.51.0)
+      next-themes:
+        specifier: ^0.4.6
+        version: 0.4.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      shadcn:
+        specifier: ^4.16.0
+        version: 4.16.0(babel-plugin-macros@3.1.0)(supports-color@8.1.1)(typescript@5.9.3)
+      sonner:
+        specifier: ^2.0.7
+        version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      streamdown:
+        specifier: ^2.5.0
+        version: 2.5.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(supports-color@8.1.1)
+      swr:
+        specifier: ^2.4.2
+        version: 2.4.2(react@19.2.4)
+      tailwindcss:
+        specifier: ^4
+        version: 4.3.3
+      tw-animate-css:
+        specifier: ^1.4.0
+        version: 1.4.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19
+        version: 19.2.18
       typescript:
         specifier: ^5
         version: 5.9.3

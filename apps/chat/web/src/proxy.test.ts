@@ -31,7 +31,7 @@ describe("proxy public routes", () => {
         event,
       );
 
-      expect(response.status).toBe(200);
+      expect(response?.status).toBe(200);
       expect(protectedMiddleware).not.toHaveBeenCalled();
     },
   );
@@ -41,7 +41,7 @@ describe("proxy public routes", () => {
 
     const response = await proxy(request, event);
 
-    expect(response.status).toBe(204);
+    expect(response?.status).toBe(204);
     expect(protectedMiddleware).toHaveBeenCalledWith(request, event);
   });
 });
