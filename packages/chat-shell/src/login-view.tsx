@@ -4,25 +4,13 @@ import { SignIn, useAuth } from "@clerk/nextjs";
 import Image from "next/image";
 import * as React from "react";
 
-export function LoginView({ desktopShell, redirectUrl }: { desktopShell: boolean; redirectUrl: string }) {
+export function LoginView({ redirectUrl }: { redirectUrl: string }) {
   const { isLoaded, isSignedIn } = useAuth();
 
   React.useEffect(() => {
-    if (desktopShell || !isLoaded || !isSignedIn) return;
+    if (!isLoaded || !isSignedIn) return;
     window.location.replace(redirectUrl);
-  }, [desktopShell, isLoaded, isSignedIn, redirectUrl]);
-
-  if (desktopShell) {
-    return (
-      <main className="flex h-dvh items-center justify-center bg-background px-5 text-foreground">
-        <div className="flex max-w-sm flex-col items-center gap-5 text-center">
-          <Image alt="Eve" className="size-16 dark:invert" height={102} src="/eve-logo.svg" width={102} />
-          <div><h1 className="text-xl font-semibold">Sign in to Evedraw</h1><p className="mt-2 text-sm text-muted-foreground">Continue securely in your browser, then return here automatically.</p></div>
-          <a className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground" href="evedraw-auth://start">Continue in browser</a>
-        </div>
-      </main>
-    );
-  }
+  }, [isLoaded, isSignedIn, redirectUrl]);
 
   if (!isLoaded || isSignedIn) {
     return (

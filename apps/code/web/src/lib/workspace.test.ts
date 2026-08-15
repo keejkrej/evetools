@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveWorkspacePath, searchWorkspaceFiles, workspaceDiff, workspaceRoot, workspaceStatus, writeWorkspaceFile } from "./workspace";
+import { workspaceRoot as agentWorkspaceRoot } from "../../../tui/agent/lib/workspace.js";
+import { listWorkspaceFiles, resolveWorkspacePath, searchWorkspaceFiles, workspaceDiff, workspaceRoot, workspaceStatus, writeWorkspaceFile } from "./workspace";
 
 let root = "";
 const originalRoot = process.env.EVECODE_WORKSPACE_ROOT;
@@ -19,13 +20,17 @@ afterEach(async () => {
 });
 
 describe("workspace path confinement", () => {
-  it("defaults to the shared Evecode directory", () => {
+  it("requires the workspace chosen by the unified launcher", () => {
     delete process.env.EVECODE_WORKSPACE_ROOT;
-    expect(workspaceRoot()).toBe(path.join(homedir(), ".evetools", "code"));
+    expect(() => workspaceRoot()).toThrow(/EVECODE_WORKSPACE_ROOT is required/);
   });
 
   it("resolves paths inside the configured root", () => {
-    expect(resolveWorkspacePath("src/index.ts")).toBe(path.join(root, "src/index.ts"));
+    expect(resolveWorkspacePath("src/index.ts")).toBe(path.join(workspaceRoot(), "src/index.ts"));
+  });
+
+  it("uses exactly the same selected root as the shared agent", async () => {
+    expect(await agentWorkspaceRoot()).toBe(workspaceRoot());
   });
 
   it("rejects traversal outside the configured root", () => {
@@ -50,6 +55,16 @@ describe("workspace path confinement", () => {
     ]);
   });
 
+  it("omits generated framework state from the workspace explorer", async () => {
+    for (const directory of [".eve", ".expo", ".next", ".output"]) {
+      await mkdir(path.join(root, directory));
+      await writeFile(path.join(root, directory, "generated.txt"), "generated");
+    }
+    await writeWorkspaceFile("src/visible.ts", "export const visible = true;\n");
+
+    await expect(listWorkspaceFiles()).resolves.toEqual(["src/visible.ts"]);
+  });
+
   it("returns an empty Git status outside a repository", async () => {
     await expect(workspaceStatus()).resolves.toEqual([]);
   });
@@ -71,6 +86,12 @@ describe("workspace path confinement", () => {
 });
 
 describe("workspace diff", () => {
+  it("executes Git directly without a platform-specific shell", async () => {
+    const source = await readFile(new URL("./workspace.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/\/bin\/sh|shellQuote|\["-lc"/);
+    expect(source).toContain('execFileAsync("git", args');
+  });
+
   it("reports no changes outside a repository", async () => {
     await expect(workspaceDiff()).resolves.toBe("No uncommitted changes.");
   });

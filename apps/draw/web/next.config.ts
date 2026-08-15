@@ -3,11 +3,6 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   allowedDevOrigins: ["127.0.0.1"],
-  serverExternalPackages: [
-    "electron",
-    "@cursor/sdk",
-    "ai-sdk-provider-cursor-sdk",
-  ],
   async headers() {
     return [
       {

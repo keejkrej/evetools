@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.6.3",
+    "@evetools/openrouter": "workspace:*",
     "@evetools/ui": "workspace:*",
     "@lobehub/icons": "^5.15.0",
     "lucide-react": "^1.28.0",

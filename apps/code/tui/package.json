@@ -1,0 +1,46 @@
+{
+  "name": "@evetools/code-tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The terminal interface for Evecode",
+  "bin": {
+    "evecode": "./bin/evecode.mjs",
+    "eve-agent": "./bin/evecode.mjs"
+  },
+  "files": [
+    "agent",
+    "bin",
+    "docs",
+    "src",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "eve build",
+    "dev": "eve dev",
+    "start": "eve start",
+    "typecheck": "tsc && tsc -p tsconfig.runtime.json",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "agent": "node ./bin/evecode.mjs",
+    "info": "eve info"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "ai": "^7.0.65",
+    "tsx": "^4.23.9",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "eve": "https://github.com/keejkrej/eve.git#82a4c974346f4237dcb6d3a961f9242d16add108&path:/packages/eve"
+  },
+  "devDependencies": {
+    "@types/node": "24.x",
+    "eve": "https://github.com/keejkrej/eve.git#82a4c974346f4237dcb6d3a961f9242d16add108&path:/packages/eve",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

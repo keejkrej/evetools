@@ -1,8 +1,17 @@
 import { StatusBar } from "expo-status-bar";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
+import { ClerkProvider, useAuth } from "@clerk/expo";
+import { useHostedAuth } from "@clerk/expo/hosted-auth";
+import { tokenCache } from "@clerk/expo/token-cache";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  CHAT_OPENROUTER_MODEL,
+  OPENROUTER_MODELS,
+  openRouterModelSupportsImages,
+  type OpenRouterModelOption,
+} from "@evetools/openrouter";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -21,7 +30,13 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  createAuthenticatedFetch,
+  type ClerkTokenGetter,
+} from "./src/authenticated-fetch";
+import { normalizeApiUrl } from "./src/api-url";
 
 type Attachment = {
   id: string;
@@ -51,23 +66,14 @@ type Conversation = {
 };
 
 const STORAGE_KEY = "eve-mobile-conversations-v1";
-const PROVIDER_KEY = "eve-mobile-provider-v1";
-type Provider = "cursor" | "ollama";
-const modelKey = (provider: Provider) => `eve-mobile-model-${provider}-v1`;
-const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000").replace(
-  /\/$/,
-  "",
+const MODEL_KEY = "eve-mobile-model-openrouter-v1";
+const CLERK_PUBLISHABLE_KEY =
+  process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+const RAW_API_URL = process.env.EXPO_PUBLIC_API_URL;
+const CONFIGURED_API_URL = normalizeApiUrl(
+  RAW_API_URL,
+  typeof __DEV__ !== "undefined" && __DEV__,
 );
-type ModelOption = { id: string; displayName: string; description?: string };
-const CURSOR_FALLBACK_MODELS: ModelOption[] = [
-  { id: "auto", displayName: "Auto" },
-  { id: "composer-2.5", displayName: "Composer 2.5" },
-];
-const OLLAMA_FALLBACK_MODELS: ModelOption[] = [
-  { id: "gpt-oss:120b", displayName: "gpt-oss:120b" },
-];
-const fallbackModels = (provider: Provider) =>
-  provider === "ollama" ? OLLAMA_FALLBACK_MODELS : CURSOR_FALLBACK_MODELS;
 type ChatStreamEvent =
   | { type: "text"; delta: string }
   | { type: "reasoning"; delta: string }
@@ -86,7 +92,13 @@ function createConversation(): Conversation {
   };
 }
 
-function EveApp() {
+type EveAppProps = {
+  apiUrl: string;
+  getToken: ClerkTokenGetter;
+  onSignOut: () => Promise<void>;
+};
+
+function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
   const systemTheme = useColorScheme();
   const dark = systemTheme === "dark";
   const colors = dark ? darkColors : lightColors;
@@ -97,20 +109,25 @@ function EveApp() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [provider, setProvider] = useState<Provider>("cursor");
-  const [model, setModel] = useState("auto");
-  const [models, setModels] = useState<ModelOption[]>(CURSOR_FALLBACK_MODELS);
+  const [model, setModel] = useState(CHAT_OPENROUTER_MODEL);
+  const [models, setModels] =
+    useState<readonly OpenRouterModelOption[]>(OPENROUTER_MODELS);
   const [modelOpen, setModelOpen] = useState(false);
   const [expandedActivity, setExpandedActivity] = useState("");
   const [configurationStatus, setConfigurationStatus] = useState<
-    "checking" | "ready" | "missing" | "offline"
+    "checking" | "ready" | "missing" | "offline" | "unauthorized"
   >("checking");
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const authenticatedFetch = useMemo(
+    () => createAuthenticatedFetch(getToken),
+    [getToken],
+  );
 
   const active =
     conversations.find((conversation) => conversation.id === activeId) ??
     conversations[0];
+  const attachmentsAllowed = openRouterModelSupportsImages(model);
   const filteredConversations = conversations.filter((conversation) => {
     const haystack = `${conversation.title} ${conversation.messages
       .map((message) => message.content)
@@ -134,58 +151,66 @@ function EveApp() {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.getItem(PROVIDER_KEY).then((saved) => {
-      if (saved === "cursor" || saved === "ollama") setProvider(saved);
-    });
-  }, []);
-
-  useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API_URL}/api/health`, {
+    authenticatedFetch(`${apiUrl}/api/health`, {
       cache: "no-store",
       signal: controller.signal,
     })
       .then((response) => {
+        if (response.status === 401 || response.status === 403) {
+          setConfigurationStatus("unauthorized");
+          return null;
+        }
         if (!response.ok) throw new Error("Health check failed.");
         return response.json() as Promise<{ status?: string }>;
       })
-      .then((payload) =>
-        setConfigurationStatus(
-          payload.status === "ready" ? "ready" : "missing",
-        ),
-      )
+      .then((payload) => {
+        if (payload) {
+          setConfigurationStatus(
+            payload.status === "ready" ? "ready" : "missing",
+          );
+        }
+      })
       .catch((error) => {
         if (!(error instanceof Error && error.name === "AbortError")) {
           setConfigurationStatus("offline");
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [apiUrl, authenticatedFetch]);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API_URL}/api/models?provider=${provider}`, { signal: controller.signal })
-      .then((response) => {
+    async function loadModels() {
+      let catalog: readonly OpenRouterModelOption[] = OPENROUTER_MODELS;
+      try {
+        const response = await authenticatedFetch(`${apiUrl}/api/models`, {
+          signal: controller.signal,
+        });
+        if (response.status === 401 || response.status === 403) {
+          setConfigurationStatus("unauthorized");
+          return;
+        }
         if (!response.ok) throw new Error("Could not load models.");
-        return response.json() as Promise<{ models?: ModelOption[] }>;
-      })
-      .then(async (payload) => {
-        const catalog = payload.models?.length ? payload.models : fallbackModels(provider);
-        setModels(catalog);
-        const saved = await AsyncStorage.getItem(modelKey(provider));
-        if (saved && catalog.some((item) => item.id === saved)) {
-          setModel(saved);
-        } else {
-          setModel(catalog[0].id);
-        }
-      })
-      .catch((error) => {
-        if (!(error instanceof Error && error.name === "AbortError")) {
-          setModels(fallbackModels(provider));
-        }
-      });
+        const payload = (await response.json()) as {
+          models?: OpenRouterModelOption[];
+        };
+        if (payload.models?.length) catalog = payload.models;
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+      }
+      const saved = await AsyncStorage.getItem(MODEL_KEY).catch(() => null);
+      if (controller.signal.aborted) return;
+      setModels(catalog);
+      setModel(
+        saved && catalog.some((item) => item.id === saved)
+          ? saved
+          : catalog[0].id,
+      );
+    }
+    void loadModels();
     return () => controller.abort();
-  }, [provider]);
+  }, [apiUrl, authenticatedFetch]);
 
   useEffect(() => {
     if (!conversations.length) return;
@@ -300,7 +325,9 @@ function EveApp() {
       Alert.alert(
         "Eve isn’t connected",
         configurationStatus === "missing"
-          ? "The web deployment needs CURSOR_API_KEY configured."
+          ? "The web deployment needs OPENROUTER_API_KEY configured."
+          : configurationStatus === "unauthorized"
+            ? "Sign out, then use the Clerk account configured as the owner."
           : "Check EXPO_PUBLIC_API_URL and your network connection.",
       );
       return;
@@ -336,11 +363,10 @@ function EveApp() {
     let receivedText = "";
     let receivedAny = false;
     try {
-      const response = await fetch(`${API_URL}/api/chat`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          provider,
           model,
           messages: requestMessages.map(
             ({ role, content: text, attachments: files }, index) => ({
@@ -511,6 +537,13 @@ function EveApp() {
   }
 
   async function pickImages() {
+    if (!attachmentsAllowed) {
+      Alert.alert(
+        "Text-only model",
+        "Choose an image-capable OpenRouter model before attaching images.",
+      );
+      return;
+    }
     const available = 3 - attachments.length;
     if (available <= 0) {
       Alert.alert("Attachment limit", "You can attach up to three images.");
@@ -552,18 +585,9 @@ function EveApp() {
 
   function selectModel(id: string) {
     setModel(id);
+    if (!openRouterModelSupportsImages(id)) setAttachments([]);
     setModelOpen(false);
-    AsyncStorage.setItem(modelKey(provider), id).catch(() => undefined);
-  }
-
-  function selectProvider(nextProvider: Provider) {
-    if (nextProvider === provider) return;
-    setProvider(nextProvider);
-    AsyncStorage.setItem(PROVIDER_KEY, nextProvider).catch(() => undefined);
-    setModels(fallbackModels(nextProvider));
-    AsyncStorage.getItem(modelKey(nextProvider)).then((saved) =>
-      setModel(saved ?? fallbackModels(nextProvider)[0].id),
-    );
+    AsyncStorage.setItem(MODEL_KEY, id).catch(() => undefined);
   }
 
   return (
@@ -583,7 +607,7 @@ function EveApp() {
             <Ionicons color={colors.foreground} name="menu" size={24} />
           </Pressable>
           <Pressable
-            accessibilityLabel="Choose model"
+            accessibilityLabel="Choose OpenRouter model"
             onPress={() => setModelOpen(true)}
             style={styles.headerTitle}
           >
@@ -628,14 +652,18 @@ function EveApp() {
                 {configurationStatus === "checking"
                   ? "Connecting to Eve"
                   : configurationStatus === "missing"
-                    ? "Cursor API key required"
+                    ? "OpenRouter API key required"
+                    : configurationStatus === "unauthorized"
+                      ? "Owner access required"
                     : "Eve is offline"}
               </Text>
               <Text style={[styles.connectionBannerText, { color: colors.muted }]}>
                 {configurationStatus === "checking"
                   ? "Checking the server configuration."
                   : configurationStatus === "missing"
-                    ? "Configure CURSOR_API_KEY on the web deployment."
+                    ? "Configure OPENROUTER_API_KEY on the web deployment."
+                    : configurationStatus === "unauthorized"
+                      ? "Sign out, then use the Clerk account configured as EVE_OWNER_USER_ID."
                     : "Check EXPO_PUBLIC_API_URL and your connection."}
               </Text>
             </View>
@@ -903,6 +931,7 @@ function EveApp() {
               disabled={
                 configurationStatus !== "ready" ||
                 streaming ||
+                !attachmentsAllowed ||
                 attachments.length >= 3
               }
               hitSlop={8}
@@ -913,6 +942,7 @@ function EveApp() {
                 color={
                   configurationStatus !== "ready" ||
                   streaming ||
+                  !attachmentsAllowed ||
                   attachments.length >= 3
                     ? colors.muted
                     : colors.foreground
@@ -974,7 +1004,7 @@ function EveApp() {
           >
             <View style={[styles.menuHeader, { borderColor: colors.border }]}>
               <Text style={[styles.menuTitle, { color: colors.foreground }]}>
-                Choose a model
+                Choose an OpenRouter model
               </Text>
               <Pressable
                 accessibilityLabel="Close model selector"
@@ -983,24 +1013,11 @@ function EveApp() {
                 <Ionicons color={colors.foreground} name="close" size={26} />
               </Pressable>
             </View>
-            <View style={styles.providerToggleGroup}>
-              {(["cursor", "ollama"] as const).map((item) => (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: provider === item }}
-                  key={item}
-                  onPress={() => selectProvider(item)}
-                  style={[
-                    styles.providerToggle,
-                    { borderColor: colors.border },
-                    provider === item && { backgroundColor: colors.secondary },
-                  ]}
-                >
-                  <Text style={{ color: colors.foreground }}>
-                    {item === "cursor" ? "Cursor" : "Ollama Cloud"}
-                  </Text>
-                </Pressable>
-              ))}
+            <View style={styles.modelCatalogIntro}>
+              <Ionicons color={colors.muted} name="globe-outline" size={18} />
+              <Text style={[styles.modelCatalogText, { color: colors.muted }]}>
+                Models are provided by OpenRouter.
+              </Text>
             </View>
             <FlatList
               contentContainerStyle={styles.modelList}
@@ -1089,6 +1106,7 @@ function EveApp() {
                 </Text>
               }
               keyExtractor={(item) => item.id}
+              style={styles.conversationList}
               renderItem={({ item }) => (
                 <Pressable
                   onLongPress={() => conversationOptions(item)}
@@ -1117,6 +1135,20 @@ function EveApp() {
                 </Pressable>
               )}
             />
+            <Pressable
+              accessibilityLabel="Sign out"
+              onPress={() => {
+                abortRef.current?.abort();
+                setMenuOpen(false);
+                void onSignOut();
+              }}
+              style={[styles.signOut, { borderColor: colors.border }]}
+            >
+              <Ionicons color={colors.foreground} name="log-out-outline" size={19} />
+              <Text style={{ color: colors.foreground, fontWeight: "600" }}>
+                Sign out
+              </Text>
+            </Pressable>
             <Text style={[styles.menuHint, { color: colors.muted }]}>
               Long-press a conversation for more options.
             </Text>
@@ -1127,10 +1159,135 @@ function EveApp() {
   );
 }
 
+function LoadingScreen() {
+  const dark = useColorScheme() === "dark";
+  const colors = dark ? darkColors : lightColors;
+
+  return (
+    <SafeAreaView
+      style={[styles.centeredScreen, { backgroundColor: colors.background }]}
+    >
+      <StatusBar style={dark ? "light" : "dark"} />
+      <ActivityIndicator color={colors.foreground} size="large" />
+      <Text style={[styles.statusText, { color: colors.muted }]}>Loading Eve</Text>
+    </SafeAreaView>
+  );
+}
+
+function SignInScreen() {
+  const dark = useColorScheme() === "dark";
+  const colors = dark ? darkColors : lightColors;
+  const { startHostedAuth } = useHostedAuth();
+  const [signingIn, setSigningIn] = useState(false);
+  const [error, setError] = useState("");
+
+  async function signIn() {
+    setError("");
+    setSigningIn(true);
+    try {
+      await startHostedAuth({ mode: "sign-in" });
+    } catch {
+      setError("Sign-in could not be completed. Please try again.");
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
+  return (
+    <SafeAreaView
+      style={[styles.authScreen, { backgroundColor: colors.background }]}
+    >
+      <StatusBar style={dark ? "light" : "dark"} />
+      <View style={[styles.authLogo, { backgroundColor: colors.foreground }]}>
+        <Text style={[styles.authLogoText, { color: colors.background }]}>E</Text>
+      </View>
+      <Text style={[styles.authTitle, { color: colors.foreground }]}>Evechat</Text>
+      <Text style={[styles.authBody, { color: colors.muted }]}>
+        Sign in with the Clerk owner account to use your private assistant.
+      </Text>
+      {!!error && <Text style={styles.authError}>{error}</Text>}
+      <Pressable
+        accessibilityRole="button"
+        disabled={signingIn}
+        onPress={() => void signIn()}
+        style={[
+          styles.authButton,
+          { backgroundColor: colors.foreground },
+          signingIn && styles.disabled,
+        ]}
+      >
+        {signingIn ? (
+          <ActivityIndicator color={colors.background} />
+        ) : (
+          <Text style={[styles.authButtonText, { color: colors.background }]}>
+            Sign in
+          </Text>
+        )}
+      </Pressable>
+    </SafeAreaView>
+  );
+}
+
+function AuthenticatedRoot({ apiUrl }: { apiUrl: string }) {
+  const { getToken, isLoaded, isSignedIn, signOut } = useAuth();
+
+  if (!isLoaded) return <LoadingScreen />;
+  if (!isSignedIn) return <SignInScreen />;
+
+  return (
+    <EveApp
+      apiUrl={apiUrl}
+      getToken={getToken}
+      onSignOut={() => signOut()}
+    />
+  );
+}
+
+function ConfigurationScreen({ missing }: { missing: string[] }) {
+  const dark = useColorScheme() === "dark";
+  const colors = dark ? darkColors : lightColors;
+
+  return (
+    <SafeAreaView
+      style={[styles.authScreen, { backgroundColor: colors.background }]}
+    >
+      <StatusBar style={dark ? "light" : "dark"} />
+      <Ionicons color="#dc2626" name="alert-circle-outline" size={42} />
+      <Text style={[styles.authTitle, { color: colors.foreground }]}>
+        Setup required
+      </Text>
+      <Text style={[styles.authBody, { color: colors.muted }]}>
+        Add {missing.join(" and ")} to the Expo environment, then restart the
+        development server.
+      </Text>
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
+  const missing = [
+    !CLERK_PUBLISHABLE_KEY && "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY",
+    !RAW_API_URL?.trim() && "EXPO_PUBLIC_API_URL",
+  ].filter((value): value is string => Boolean(value));
+  const apiUrlError =
+    RAW_API_URL?.trim() && !CONFIGURED_API_URL
+      ? "EXPO_PUBLIC_API_URL must be a valid HTTPS URL (HTTP is allowed only in development)."
+      : undefined;
+
   return (
     <SafeAreaProvider>
-      <EveApp />
+      {missing.length || apiUrlError ? (
+        <ConfigurationScreen
+          missing={[...missing, ...(apiUrlError ? [apiUrlError] : [])]}
+        />
+      ) : (
+        <ClerkProvider
+          publishableKey={CLERK_PUBLISHABLE_KEY!}
+          tokenCache={tokenCache}
+        >
+          <AuthenticatedRoot apiUrl={CONFIGURED_API_URL!} />
+        </ClerkProvider>
+      )}
     </SafeAreaProvider>
   );
 }
@@ -1284,7 +1441,18 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   conversationTitle: { flex: 1, fontSize: 15 },
+  conversationList: { flex: 1 },
   menuHint: { padding: 16, textAlign: "center", fontSize: 12 },
+  signOut: {
+    alignItems: "center",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    marginHorizontal: 14,
+    padding: 12,
+  },
   searchBox: {
     marginHorizontal: 14,
     marginBottom: 6,
@@ -1299,8 +1467,13 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 15 },
   noResults: { padding: 28, textAlign: "center" },
   modelList: { padding: 14, gap: 8 },
-  providerToggleGroup: { flexDirection: "row", gap: 8, paddingHorizontal: 14, paddingTop: 12 },
-  providerToggle: { alignItems: "center", borderWidth: 1, borderRadius: 10, flex: 1, paddingVertical: 10 },
+  modelCatalogIntro: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+  },
+  modelCatalogText: { flex: 1, fontSize: 13, lineHeight: 18 },
   modelOption: {
     minHeight: 62,
     padding: 14,
@@ -1355,4 +1528,50 @@ const styles = StyleSheet.create({
   activityItem: { flexDirection: "row", alignItems: "center", gap: 8 },
   activityItemTitle: { fontSize: 13, fontWeight: "600", marginBottom: 3 },
   activityReasoning: { fontSize: 13, lineHeight: 19 },
+  centeredScreen: {
+    alignItems: "center",
+    flex: 1,
+    gap: 14,
+    justifyContent: "center",
+  },
+  statusText: { fontSize: 14 },
+  authScreen: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    padding: 28,
+  },
+  authLogo: {
+    alignItems: "center",
+    borderRadius: 30,
+    height: 60,
+    justifyContent: "center",
+    marginBottom: 18,
+    width: 60,
+  },
+  authLogoText: { fontSize: 25, fontWeight: "700" },
+  authTitle: { fontSize: 27, fontWeight: "700", textAlign: "center" },
+  authBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 10,
+    maxWidth: 360,
+    textAlign: "center",
+  },
+  authError: {
+    color: "#dc2626",
+    fontSize: 14,
+    marginTop: 14,
+    textAlign: "center",
+  },
+  authButton: {
+    alignItems: "center",
+    borderRadius: 12,
+    justifyContent: "center",
+    marginTop: 24,
+    minHeight: 50,
+    width: "100%",
+  },
+  authButtonText: { fontSize: 16, fontWeight: "700" },
+  disabled: { opacity: 0.6 },
 });

@@ -3,10 +3,10 @@
 Evetools is a Turborepo for three deliberately separate agentic products:
 
 - **Evechat** (`@evetools/chat`) — a focused conversational assistant with web and mobile interfaces
-- **Evedraw** (`@evetools/draw`) — an agentic visual canvas with web and macOS desktop interfaces
-- **Evecode** (`@evetools/code`) — an agentic coding product with web and desktop interfaces, inspired by Codex app and the UX of `../t3code`
+- **Evedraw** (`@evetools/draw`) — an agentic visual canvas with a web interface
+- **Evecode** — an agentic coding product with web (`@evetools/code`) and terminal (`@evetools/code-tui`) interfaces, inspired by Codex app and the UX of `../t3code`
 
-The repository was seeded from the current merged `evechat` codebase. The obsolete standalone `evedraw` repository was not used. T3 Code is a product reference for Evecode, not an architectural template: Evetools uses only the first-party Eve agent harness.
+The repository was seeded from the current merged `evechat` codebase. The obsolete standalone `evedraw` repository was not used. T3 Code is a product reference for Evecode, not an architectural template. Evecode's web and terminal interfaces both run the same authored agent on the first-party [eve](https://eve.dev) runtime; Chat and Draw use the Vercel AI SDK. Every product sends model traffic through OpenRouter.
 
 ## Repository shape
 
@@ -17,37 +17,50 @@ apps/
     mobile/          @evetools/chat-mobile
   draw/
     web/             @evetools/draw
-    desktop/         @evetools/draw-desktop
   code/
     web/             @evetools/code
-    desktop/         @evetools/code-desktop
+    tui/             @evetools/code-tui
 packages/
   agent/             @evetools/agent
+  openrouter/        @evetools/openrouter
   ui/                @evetools/ui
 ```
 
-`@evetools/agent` is the product-neutral Eve harness seam around the Vercel AI SDK. Products own their instructions, tools, persistence, and workflows. In particular, drawing contracts stay in Draw, while coding workspace, terminal, and selective `~/.agents/skills` loading stay in Code. Chat and Draw do not discover coding skills. Shared UI primitives and AI presentation modules live in `@evetools/ui`.
-
-Evedraw owns a desktop target because drawing needs native access to local Excalidraw files. Evechat intentionally has no desktop target. Evecode has separate web and desktop interfaces and will use a simple Next.js plus native Eve app architecture rather than T3 Code's multi-harness architecture.
+`@evetools/openrouter` owns the curated model catalog and server-side OpenRouter adapter used across product selectors. `@evetools/agent` is the product-neutral event-stream seam used by Chat and Draw. Evecode's authored agent, instructions, model policy, tools, approvals, and durable session protocol live once under `apps/code/tui`; Next.js and the terminal are UI adapters over that core. Shared UI primitives and AI presentation modules live in `@evetools/ui`.
 
 ## Development
 
-Node.js 22.13+ and pnpm are required.
+Node.js 24+ and pnpm are required.
 
 ```bash
 pnpm install
 cp .env.example .env
-# Add shared credentials. Evecode uses ~/.evetools/code unless overridden.
+cp apps/chat/mobile/.env.example apps/chat/mobile/.env.local
+# Add OPENROUTER_API_KEY.
 pnpm dev:chat
 pnpm dev:chat-mobile
 pnpm dev:draw
-pnpm dev:draw-desktop
-pnpm dev:code
-pnpm dev:code-desktop
+pnpm evecode launch web
+pnpm evecode launch tui /path/to/a/repository
+pnpm evecode status
 ```
 
 Turbo also supports `pnpm build`, `pnpm lint`, `pnpm test`, and `pnpm check` across the workspace.
 
-Root development commands load the repository-level `.env`. Packaged desktop apps load the same configuration contract from `~/.evetools/.env` so identity and provider credentials are shared between Evedraw and Evecode.
+Server and CLI development commands load the repository-level `.env`. Evechat
+mobile deliberately reads its public-only package-local `.env.local` so Expo
+does not inherit server credentials. Evecode exposes both product surfaces
+through one command: `evecode launch web` opens the Next.js interface, while
+`evecode launch tui` starts the terminal interface. The same command owns
+login, model selection, and status; see [`apps/code/tui`](apps/code/tui) for
+details and release instructions.
 
-Evecode's current coding tools can read and write files and execute shell commands inside its workspace. The default is `~/.evetools/code`; set `EVECODE_WORKSPACE_ROOT` to override it. Run it locally and do not expose its Next.js server publicly.
+Model selectors expose a small, tool-capable shortlist rather than OpenRouter's full catalog. The apps refresh availability and display metadata from OpenRouter while keeping the curated order stable.
+
+Evechat mobile uses the same Clerk owner identity as the web app. Set
+`EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and a device-reachable
+`EXPO_PUBLIC_API_URL`; see [`apps/chat/mobile`](apps/chat/mobile) for native
+registration and physical-device networking details. Provider and Clerk secret
+keys remain on the web deployment.
+
+Evecode's shared coding tools can read and write files and execute shell commands inside the workspace selected by either launch command. Both interfaces use positional path → `EVECODE_WORKSPACE_ROOT` → `INIT_CWD` → current directory, and the launcher passes the same canonical root to the agent and UI. Run these interfaces locally and do not expose the Next.js server publicly.

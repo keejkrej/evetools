@@ -1,11 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
-import { verifyDesktopSession } from "@/lib/desktop-session";
 
 const isPublicRoute = createRouteMatcher([
   "/api/readiness",
-  "/desktop-auth/complete",
-  "/desktop-auth/status",
   "/login(.*)",
   "/unauthorized",
 ]);
@@ -32,9 +29,6 @@ const protectedRouteMiddleware = clerkMiddleware(
     }
   },
   {
-    authorizedParties: process.env.EVEDRAW_DESKTOP === "1"
-      ? ["http://evedraw.localhost:3000", "http://127.0.0.1:43117"]
-      : undefined,
     contentSecurityPolicy: {},
     publishableKey:
       process.env.EVE_CLERK_PUBLISHABLE_KEY ??
@@ -45,14 +39,6 @@ const protectedRouteMiddleware = clerkMiddleware(
 export async function proxy(request: NextRequest, event: NextFetchEvent) {
   if (isPublicRoute(request)) {
     return NextResponse.next();
-  }
-
-  if (process.env.EVEDRAW_DESKTOP === "1") {
-    const token = request.cookies.get("eve_desktop_session")?.value;
-    const secret = process.env.CLERK_SECRET_KEY;
-    const owner = process.env.EVE_OWNER_USER_ID;
-    const verified = token && secret ? await verifyDesktopSession(token, secret) : undefined;
-    if (verified?.userId === owner) return NextResponse.next();
   }
 
   return protectedRouteMiddleware(request, event);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -32,28 +32,5 @@ assert.match(chatWrapper, /return <ChatShell \/>/);
 const drawWrapper = await read("apps/draw/web/src/components/chat.tsx");
 assert.match(drawWrapper, /ChatShell[\s\S]*storageNamespace="evedraw"/);
 assert.match(drawWrapper, /<BoardPanel \/>/);
-
-const desktopFiles = await readdir(path.join(root, "apps/draw/desktop"), {
-  recursive: true,
-});
-const presentationFiles = desktopFiles.filter(
-  (file) =>
-    !/^(node_modules|build|dist)[\\/]/.test(file) &&
-    /\.(css|html|tsx)$/.test(file),
-);
-assert.deepEqual(
-  presentationFiles,
-  [],
-  `Draw desktop must not contain presentation files: ${presentationFiles.join(", ")}`,
-);
-
-const builder = await read("apps/draw/desktop/electron-builder.yml");
-for (const requiredPath of [
-  "../web/.next/standalone",
-  "../web/.next/static",
-  "../web/public",
-]) {
-  assert.ok(builder.includes(requiredPath), `desktop package must embed ${requiredPath}`);
-}
 
 console.log("UI parity invariants passed");

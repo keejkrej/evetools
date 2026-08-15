@@ -14,5 +14,6 @@ coverage/
 *.log
 *.tsbuildinfo
 .vercel/
-apps/draw/desktop/assets/node/
-apps/draw/desktop/assets/server/
+.eve/
+.nitro/
+.output/
