@@ -1,5 +1,5 @@
 import { LoginView } from "../login-view";
 
 export default function LoginPage() {
-  return <LoginView redirectUrl="/" />;
+  return <LoginView basePath="/evedraw" redirectUrl="/evedraw" />;
 }

@@ -25,6 +25,6 @@ function findRedirectUrl(node: ReactNode): string | undefined {
 
 describe("login", () => {
   it("returns authentication to the current origin", () => {
-    expect(findRedirectUrl(LoginPage())).toBe("/");
+    expect(findRedirectUrl(LoginPage())).toBe("/evedraw");
   });
 });

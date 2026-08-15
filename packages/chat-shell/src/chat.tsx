@@ -130,6 +130,13 @@ type ToolActivity = {
   status: "running" | "complete" | "error";
   input?: unknown;
 };
+export type ChatArtifact = {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  encoding: "base64";
+  data: string;
+};
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -150,9 +157,11 @@ export type ChatShellExtension = {
   panel?: React.ReactNode;
   toolbar?: React.ReactNode;
   onToolEvent?: (event: ToolActivity) => void;
+  onArtifact?: (artifact: ChatArtifact) => void;
 };
 
 export type ChatShellProps = {
+  basePath?: string;
   exportFallback?: string;
   extension?: ChatShellExtension;
   storageNamespace?: string;
@@ -173,16 +182,24 @@ type ChatStreamEvent =
   | { type: "text"; delta: string }
   | { type: "reasoning"; delta: string }
   | ({ type: "tool" } & ToolActivity)
+  | ({ type: "artifact" } & ChatArtifact)
   | { type: "error"; message: string };
 
+const ChatBasePathContext = React.createContext("");
+
+function withBasePath(basePath: string, pathname: string) {
+  return `${basePath}${pathname}`;
+}
+
 function EveMark({ className }: { className?: string }) {
+  const basePath = React.useContext(ChatBasePathContext);
   return (
     <Image
       alt=""
       aria-hidden="true"
       className={`${className ?? ""} dark:invert`}
       height={102}
-      src="/eve-logo.svg"
+      src={withBasePath(basePath, "/eve-logo.svg")}
       width={102}
     />
   );
@@ -569,6 +586,7 @@ function Sidebar({
 }
 
 export function ChatShell({
+  basePath = "",
   exportFallback = "eve-chat",
   extension,
   storageNamespace = "eve",
@@ -605,7 +623,7 @@ export function ChatShell({
   const { resolvedTheme, setTheme } = useTheme();
   const [themeMounted, setThemeMounted] = React.useState(false);
   const { data: modelCatalog } = useSWR<{ models?: OpenRouterModelOption[] }>(
-    "/api/models",
+    withBasePath(basePath, "/api/models"),
     fetchModelCatalog,
     {
       dedupingInterval: MODEL_CATALOG_STALE_TIME,
@@ -651,7 +669,10 @@ export function ChatShell({
 
   React.useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/health", { cache: "no-store", signal: controller.signal })
+    fetch(withBasePath(basePath, "/api/health"), {
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then((response) => {
         if (!response.ok) throw new Error("Health check failed.");
         return response.json() as Promise<Health>;
@@ -669,7 +690,7 @@ export function ChatShell({
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [basePath]);
 
   React.useEffect(() => {
     queueMicrotask(() => {
@@ -844,7 +865,7 @@ export function ChatShell({
     let receivedText = "";
     let receivedAny = false;
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(withBasePath(basePath, "/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -877,6 +898,10 @@ export function ChatShell({
         if (event.type === "error") throw new Error(event.message);
         receivedAny = true;
         if (event.type === "tool") extension?.onToolEvent?.(event);
+        if (event.type === "artifact") {
+          extension?.onArtifact?.(event);
+          return;
+        }
         if (event.type === "text") receivedText += event.delta;
         updateActive((conversation) => ({
           ...conversation,
@@ -1067,7 +1092,8 @@ export function ChatShell({
     onToggle: () => setSidebarCollapsed((current) => !current),
     onToggleTheme: () =>
       setTheme(resolvedTheme === "dark" ? "light" : "dark"),
-    onSignOut: () => void signOut({ redirectUrl: "/login" }),
+    onSignOut: () =>
+      void signOut({ redirectUrl: withBasePath(basePath, "/login") }),
     resolvedTheme,
     themeMounted,
   };
@@ -1214,6 +1240,7 @@ export function ChatShell({
   );
 
   return (
+    <ChatBasePathContext.Provider value={basePath}>
     <main className="flex h-dvh overflow-hidden bg-background text-foreground">
       <Dialog
         open={renameTarget !== null}
@@ -1779,5 +1806,6 @@ export function ChatShell({
         </div>
       </section>
     </main>
+    </ChatBasePathContext.Provider>
   );
 }

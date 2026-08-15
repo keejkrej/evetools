@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   hasAllowedOrigin: vi.fn<(request: Request) => boolean>(),
   hasOpenRouterApiKey: vi.fn<() => boolean>(),
   openRouterModel: vi.fn<(modelId: string) => unknown>(),
+  createPenpotDrawingClientFromEnv: vi.fn(),
+  inspectDrawing: vi.fn(),
+  applyDrawing: vi.fn(),
+  exportDrawing: vi.fn(),
+  closeDrawingClient: vi.fn(),
   release: vi.fn(),
   streamText: vi.fn<
     (options: Record<string, unknown>) => { fullStream: AsyncIterable<unknown> }
@@ -28,6 +33,10 @@ vi.mock("@/lib/request-guard", () => ({
 vi.mock("@evetools/openrouter/server", () => ({
   hasOpenRouterApiKey: mocks.hasOpenRouterApiKey,
   openRouterModel: mocks.openRouterModel,
+}));
+
+vi.mock("@/lib/penpot-drawing-client", () => ({
+  createPenpotDrawingClientFromEnv: mocks.createPenpotDrawingClientFromEnv,
 }));
 
 vi.mock("ai", async (importOriginal) => ({
@@ -63,6 +72,13 @@ beforeEach(() => {
     allowed: true,
     release: mocks.release,
   });
+  mocks.createPenpotDrawingClientFromEnv.mockReturnValue({
+    inspect: mocks.inspectDrawing,
+    apply: mocks.applyDrawing,
+    export: mocks.exportDrawing,
+    close: mocks.closeDrawingClient,
+  });
+  mocks.closeDrawingClient.mockResolvedValue(undefined);
   mocks.streamText.mockReturnValue({
     fullStream: eventStream({ type: "text-delta", text: "done" }),
   });
@@ -141,20 +157,24 @@ describe("Draw OpenRouter route", () => {
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
-  it("preserves drawing tool events and releases its slot", async () => {
+  it("preserves Penpot tool events and releases its slot", async () => {
     mocks.streamText.mockReturnValue({
       fullStream: eventStream(
         {
           type: "tool-call",
           toolCallId: "draw-1",
-          toolName: "draw_on_board",
+          toolName: "apply_drawing_patch",
           title: "Draw",
-          input: { mode: "replace", elements: [] },
+          input: {
+            baseRevision: "opaque:1",
+            idempotencyKey: "draw-1",
+            operations: [],
+          },
         },
         {
           type: "tool-result",
           toolCallId: "draw-1",
-          toolName: "draw_on_board",
+          toolName: "apply_drawing_patch",
           title: "Draw",
         },
         { type: "text-delta", text: "done" },
@@ -172,15 +192,19 @@ describe("Draw OpenRouter route", () => {
       {
         type: "tool",
         id: "draw-1",
-        name: "draw_on_board",
+        name: "apply_drawing_patch",
         title: "Draw",
         status: "running",
-        input: { mode: "replace", elements: [] },
+        input: {
+          baseRevision: "opaque:1",
+          idempotencyKey: "draw-1",
+          operations: [],
+        },
       },
       {
         type: "tool",
         id: "draw-1",
-        name: "draw_on_board",
+        name: "apply_drawing_patch",
         title: "Draw",
         status: "complete",
       },
@@ -188,9 +212,154 @@ describe("Draw OpenRouter route", () => {
     ]);
     const options = mocks.streamText.mock.calls[0][0];
     expect(Object.keys(options.tools as object)).toEqual([
-      "draw_on_board",
-      "suggest_board_layout",
+      "inspect_drawing",
+      "apply_drawing_patch",
+      "export_drawing",
     ]);
+    expect(mocks.closeDrawingClient).toHaveBeenCalledOnce();
     expect(mocks.release).toHaveBeenCalledOnce();
+  });
+
+  it("returns real Penpot outcomes from the model-facing tool", async () => {
+    const outcome = {
+      protocolVersion: "eve.design/v1",
+      status: "ok",
+      data: {
+        revision: "opaque:1",
+        document: { fileId: "file-1" },
+        page: { id: "page-1" },
+        selectionIds: [],
+        shapes: [],
+        truncated: false,
+      },
+    };
+    mocks.inspectDrawing.mockResolvedValue(outcome);
+
+    const response = await POST(request({}));
+    await response.text();
+    const options = mocks.streamText.mock.calls[0][0];
+    const inspectTool = (options.tools as Record<
+      string,
+      { execute: (input: Record<string, unknown>) => Promise<unknown> }
+    >).inspect_drawing;
+
+    await expect(inspectTool.execute({ scope: "current-page" })).resolves.toBe(
+      outcome,
+    );
+    expect(mocks.inspectDrawing).toHaveBeenCalledWith(
+      { scope: "current-page" },
+      { signal: expect.any(AbortSignal) },
+    );
+  });
+
+  it("continues as chat-only when Penpot is not configured", async () => {
+    mocks.createPenpotDrawingClientFromEnv.mockReturnValue(null);
+
+    const response = await POST(request({}));
+    await response.text();
+    const options = mocks.streamText.mock.calls[0][0];
+
+    expect(options.tools).toBeUndefined();
+    expect(options.system).toContain("not connected");
+    expect(mocks.closeDrawingClient).not.toHaveBeenCalled();
+  });
+
+  it("streams exported archives to the browser without putting bytes in the model result", async () => {
+    const archive = {
+      protocolVersion: "eve.design/v1",
+      status: "ok",
+      data: {
+        revision: "opaque:2",
+        artifact: {
+          format: "penpot",
+          mimeType: "application/zip",
+          fileName: "diagram.penpot",
+          byteLength: 3,
+          data: { encoding: "base64", data: "AQID" },
+        },
+      },
+    };
+    mocks.exportDrawing.mockResolvedValue(archive);
+    let modelResult: unknown;
+    mocks.streamText.mockImplementation((options) => ({
+      fullStream: (async function* () {
+        const exportTool = (options.tools as Record<
+          string,
+          {
+            execute: (
+              input: Record<string, unknown>,
+              context: { toolCallId: string },
+            ) => Promise<unknown>;
+          }
+        >).export_drawing;
+        modelResult = await exportTool.execute({}, { toolCallId: "export-1" });
+        yield {
+          type: "tool-result",
+          toolCallId: "export-1",
+          toolName: "export_drawing",
+        };
+      })(),
+    }));
+
+    const response = await POST(request({ messages: [{ role: "user", content: "export it" }] }));
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as unknown);
+
+    expect(modelResult).toMatchObject({
+      receiptType: "evedraw.export-delivery/v1",
+      status: "ok",
+      data: {
+        artifact: {
+          fileName: "diagram.penpot",
+          encoding: "base64",
+          delivery: "browser-download",
+        },
+      },
+    });
+    expect(modelResult).not.toHaveProperty("protocolVersion");
+    expect(JSON.stringify(modelResult)).not.toContain("AQID");
+    expect(events).toEqual([
+      {
+        type: "tool",
+        id: "export-1",
+        name: "export_drawing",
+        status: "complete",
+      },
+      {
+        type: "artifact",
+        id: "export-1",
+        fileName: "diagram.penpot",
+        mediaType: "application/zip",
+        encoding: "base64",
+        data: "AQID",
+      },
+    ]);
+  });
+
+  it("does not render domain error outcomes as successful tool activity", async () => {
+    mocks.streamText.mockReturnValue({
+      fullStream: eventStream({
+        type: "tool-result",
+        toolCallId: "apply-1",
+        toolName: "apply_drawing_patch",
+        output: {
+          protocolVersion: "eve.design/v1",
+          status: "error",
+          faults: [
+            {
+              code: "revision_conflict",
+              message: "Inspect again.",
+              retryable: true,
+            },
+          ],
+        },
+      }),
+    });
+
+    const response = await POST(request({}));
+
+    await expect(response.text()).resolves.toContain('"status":"error"');
   });
 });

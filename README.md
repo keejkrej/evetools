@@ -22,11 +22,12 @@ apps/
     tui/             @evetools/code-tui
 packages/
   agent/             @evetools/agent
+  drawing/           @evetools/drawing
   openrouter/        @evetools/openrouter
   ui/                @evetools/ui
 ```
 
-`@evetools/openrouter` owns the curated model catalog and server-side OpenRouter adapter used across product selectors. `@evetools/agent` is the product-neutral event-stream seam used by Chat and Draw. Evecode's authored agent, instructions, model policy, tools, approvals, and durable session protocol live once under `apps/code/tui`; Next.js and the terminal are UI adapters over that core. Shared UI primitives and AI presentation modules live in `@evetools/ui`.
+`@evetools/openrouter` owns the curated model catalog and server-side OpenRouter adapter used across product selectors. `@evetools/drawing` owns Evedraw's editor-neutral `eve.design/v1` session contract, schemas, faults, and in-memory conformance adapter. `@evetools/agent` is the product-neutral event-stream seam used by Chat and Draw. Evecode's authored agent, instructions, model policy, tools, approvals, and durable session protocol live once under `apps/code/tui`; Next.js and the terminal are UI adapters over that core. Shared UI primitives and AI presentation modules live in `@evetools/ui`.
 
 ## Development
 

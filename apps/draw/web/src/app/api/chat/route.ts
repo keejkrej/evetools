@@ -8,9 +8,16 @@ import {
   hasOpenRouterApiKey,
   openRouterModel,
 } from "@evetools/openrouter/server";
+import { type ExportDrawingOutcome } from "@evetools/drawing";
 import { authorizeOwner } from "@/lib/owner-auth";
 import { z } from "zod";
-import { drawOnBoardInputSchema } from "@/lib/board-schema";
+import {
+  DRAWING_TOOL_DESCRIPTIONS,
+  applyDrawingPatchToolInputSchema,
+  exportDrawingToolInputSchema,
+  inspectDrawingToolInputSchema,
+} from "@/lib/drawing-tools";
+import { createPenpotDrawingClientFromEnv } from "@/lib/penpot-drawing-client";
 import {
   acquireRequestSlot,
   hasAllowedOrigin,
@@ -18,6 +25,56 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+const PENPOT_SYSTEM_PROMPT = `You are Eve, a thoughtful and accurate general-purpose assistant connected to the user's current Penpot workspace. Answer directly and use Markdown when useful.
+
+When the user asks you to draw, diagram, sketch, map, wireframe, or edit the document:
+- Call inspect_drawing first and treat its revision as opaque.
+- Apply changes with apply_drawing_patch using that exact baseRevision and a stable, unique idempotencyKey. Use clientId references for shapes created earlier in the same patch.
+- Keep layouts readable, align related shapes, and leave at least 48 pixels between neighboring shapes.
+- Check status and structured faults. After a revision conflict, inspect again before retrying. Never report a partial or failed patch as complete.
+- Use export_drawing only when the user asks for the native Penpot file.
+
+Briefly summarize successful edits. Never claim to have changed the drawing unless Penpot returned an ok or partial receipt that confirms those changes.`;
+
+const NO_PENPOT_SYSTEM_PROMPT =
+  "You are Eve, a thoughtful and accurate general-purpose assistant. Answer directly and use Markdown when useful. The Penpot drawing workspace is not connected for this request, so do not claim to inspect or edit it. If the user asks for a drawing change, explain that the Penpot MCP connection must be configured.";
+
+function exportReceiptForModel(outcome: ExportDrawingOutcome) {
+  if (outcome.status === "error") {
+    return {
+      receiptType: "evedraw.export-delivery/v1",
+      status: outcome.status,
+      faults: outcome.faults,
+    };
+  }
+  const { data: encodedData, ...artifact } = outcome.data.artifact;
+  return {
+    receiptType: "evedraw.export-delivery/v1",
+    status: outcome.status,
+    data: {
+      ...outcome.data,
+      artifact: {
+        ...artifact,
+        encoding: encodedData.encoding,
+        delivery: "browser-download",
+      },
+    },
+    ...(outcome.status === "partial" ? { faults: outcome.faults } : {}),
+  };
+}
+
+type ExportArtifact = Extract<ExportDrawingOutcome, { status: "ok" | "partial" }>[
+  "data"
+]["artifact"];
+
+function toolResultActivityStatus(output: unknown): "complete" | "error" {
+  if (!output || typeof output !== "object" || !("status" in output)) {
+    return "complete";
+  }
+  const status = (output as { status?: unknown }).status;
+  return status === "error" || status === "partial" ? "error" : "complete";
+}
 
 const requestSchema = z.object({
   messages: z
@@ -126,25 +183,59 @@ export async function POST(request: Request) {
     };
   });
 
+  let drawingClient;
+  try {
+    drawingClient = createPenpotDrawingClientFromEnv();
+  } catch {
+    slot.release();
+    return Response.json(
+      { error: "PENPOT_MCP_URL is invalid." },
+      { status: 503 },
+    );
+  }
+
+  const exportArtifacts = new Map<string, ExportArtifact>();
+
+  const drawingTools = drawingClient
+    ? {
+        inspect_drawing: tool({
+          description:
+            DRAWING_TOOL_DESCRIPTIONS.inspect,
+          inputSchema: inspectDrawingToolInputSchema,
+          execute: (input) =>
+            drawingClient.inspect(input, { signal: request.signal }),
+        }),
+        apply_drawing_patch: tool({
+          description:
+            DRAWING_TOOL_DESCRIPTIONS.apply,
+          inputSchema: applyDrawingPatchToolInputSchema,
+          execute: (input) =>
+            drawingClient.apply(input, { signal: request.signal }),
+        }),
+        export_drawing: tool({
+          description:
+            `${DRAWING_TOOL_DESCRIPTIONS.export} The model receives artifact metadata; the bounded MCP tool retains the archive payload.`,
+          inputSchema: exportDrawingToolInputSchema,
+          execute: async (input, { toolCallId }) => {
+            const outcome = await drawingClient.export(input, {
+              signal: request.signal,
+            });
+            if (outcome.status !== "error") {
+              exportArtifacts.set(toolCallId, outcome.data.artifact);
+            }
+            return exportReceiptForModel(outcome);
+          },
+        }),
+      }
+    : undefined;
+
   const startStream = () =>
     streamText({
       model: openRouterModel(parsed.data.model),
-      system:
-        "You are Eve, a thoughtful and accurate general-purpose assistant with an Excalidraw canvas. Answer directly and use Markdown when useful. When a user asks you to draw, diagram, sketch, map, or wireframe something, use draw_on_board. Use stable unique ids, bind arrows with start/end ids, keep layouts readable with at least 48px gaps, and briefly summarize what you placed after the tool succeeds. Never claim to have done something you did not do.",
+      system: drawingClient ? PENPOT_SYSTEM_PROMPT : NO_PENPOT_SYSTEM_PROMPT,
       messages,
-      tools: {
-        draw_on_board: tool({
-          description: "Draw or update shapes on the user's Excalidraw canvas. Prefer replace for a complete new diagram and append for additions.",
-          inputSchema: drawOnBoardInputSchema,
-          execute: async ({ mode, elements }) => ({ status: "applied_by_client", mode, elementCount: elements.length }),
-        }),
-        suggest_board_layout: tool({
-          description: "Develop a concise layout plan before drawing a complex flowchart, architecture, sequence, mind map, or wireframe.",
-          inputSchema: z.object({ goal: z.string().min(1), style: z.enum(["flowchart", "architecture", "sequence", "mindmap", "wireframe"]) }),
-          execute: async ({ goal, style }) => ({ goal, style, guidance: "Keep labels short, align related nodes, leave at least 48px between shapes, and label important connectors." }),
-        }),
-      },
-      stopWhen: stepCountIs(5),
+      tools: drawingTools,
+      stopWhen: stepCountIs(8),
       abortSignal: request.signal,
     });
   let result: ReturnType<typeof startStream>;
@@ -188,8 +279,20 @@ export async function POST(request: Request) {
               id: part.toolCallId,
               name: part.toolName,
               title: part.title,
-              status: "complete",
+              status: toolResultActivityStatus(part.output),
             });
+            const artifact = exportArtifacts.get(part.toolCallId);
+            if (artifact) {
+              exportArtifacts.delete(part.toolCallId);
+              send({
+                type: "artifact",
+                id: part.toolCallId,
+                fileName: artifact.fileName,
+                mediaType: artifact.mimeType,
+                encoding: artifact.data.encoding,
+                data: artifact.data.data,
+              });
+            }
           } else if (part.type === "tool-error") {
             send({
               type: "tool",
@@ -207,6 +310,7 @@ export async function POST(request: Request) {
           send({ type: "error", message: "The model stream failed." });
         }
       } finally {
+        await drawingClient?.close().catch(() => undefined);
         slot.release();
         controller.close();
       }
