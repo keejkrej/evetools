@@ -5,7 +5,7 @@
   "dependencies": {
     "@clerk/expo": "^4.3.0",
     "@expo/vector-icons": "^15.1.1",
-    "@evetools/openrouter": "workspace:*",
+    "@evetools/models": "workspace:*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.13",
     "expo-auth-session": "~57.0.7",

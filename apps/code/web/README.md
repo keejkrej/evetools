@@ -8,7 +8,7 @@ all live in `../tui`.
 ## Run locally
 
 ```bash
-# From the repository root, copy .env.example to .env and set OPENROUTER_API_KEY.
+# From the repository root, copy .env.example to .env and set OPENAI_BASE_URL and OPENAI_API_KEY.
 pnpm evecode launch web
 ```
 
@@ -19,7 +19,7 @@ The shared agent and read-only workspace explorer both require the launcher's
 resolved `EVECODE_WORKSPACE_ROOT`; neither silently falls back to another
 directory.
 
-The model picker sends a curated OpenRouter choice as ephemeral Eve client
+The model picker sends a curated gateway model as ephemeral Eve client
 context for each turn. The shared agent validates the choice and creates the
 model; the web interface never runs a separate model loop.
 

@@ -1,7 +1,7 @@
 import { defineAgent, defineDynamic } from "eve";
 import {
-  resolveOpenRouterModel,
-  resolveOpenRouterModelId,
+  resolveModel,
+  resolveModelId,
 } from "../src/models/providers.js";
 
 const reasoningLevels = [
@@ -26,8 +26,8 @@ const fallbackModel = process.env.EVECODE_TUI_MODEL_OVERRIDE;
 export default defineAgent({
   model: defineDynamic({
     events: {
-      "step.started": (_event, ctx) => resolveOpenRouterModel(
-        resolveOpenRouterModelId(ctx.messages, fallbackModel),
+      "step.started": (_event, ctx) => resolveModel(
+        resolveModelId(ctx.messages, fallbackModel),
       ),
     },
   }),

@@ -3,10 +3,10 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  migrateOpenRouterModel,
-  normalizeOpenRouterModel,
-  OPENROUTER_MODELS,
-} from "./openrouter-models.mjs";
+  migrateModel,
+  normalizeModel,
+  MODELS,
+} from "./models.mjs";
 
 /** @typedef {import("eve/tui").DevelopmentTuiModelCommandInput} DevelopmentTuiModelCommandInput */
 /**
@@ -16,10 +16,10 @@ import {
  * @property {string=} reasoning
  */
 
-const MODEL_OPTIONS = OPENROUTER_MODELS.map((value) => ({
+const MODEL_OPTIONS = MODELS.map((value) => ({
   value,
   label: value,
-  description: "OpenRouter · tool calling",
+  description: "OpenAI-compatible · tool calling",
 }));
 const REASONING_OPTIONS = ["provider-default", "none", "minimal", "low", "medium", "high", "xhigh"];
 
@@ -60,7 +60,7 @@ async function readConfig() {
 async function writeConfig(config) {
   const normalized = {
     version: 1,
-    ...(config.model ? { model: normalizeOpenRouterModel(config.model) } : {}),
+    ...(config.model ? { model: normalizeModel(config.model) } : {}),
     ...(config.reasoning ? { reasoning: config.reasoning } : {}),
   };
   const file = configPath();
@@ -78,7 +78,7 @@ async function writeConfig(config) {
 
 /** @param {EvecodeSettings} draft */
 function summary(draft) {
-  return `${migrateOpenRouterModel(draft.model)}@${draft.reasoning ?? "high"}`;
+  return `${migrateModel(draft.model)}@${draft.reasoning ?? "high"}`;
 }
 
 /**
@@ -120,7 +120,7 @@ async function waitForRebuild(serverUrl, draft) {
 export async function runEvecodeModelFlow({ prompter, argument = "", serverUrl }) {
   const current = await readConfig();
   const draft = {
-    model: migrateOpenRouterModel(current.model),
+    model: migrateModel(current.model),
     reasoning: current.reasoning ?? "high",
   };
   const save = async () => {
@@ -131,12 +131,12 @@ export async function runEvecodeModelFlow({ prompter, argument = "", serverUrl }
       : `Selected ${summary(draft)}. Evecode is still restarting; the footer will update shortly.`;
   };
   if (argument.trim()) {
-    draft.model = normalizeOpenRouterModel(argument.trim());
+    draft.model = normalizeModel(argument.trim());
     return save();
   }
   for (;;) {
     const row = await prompter.select({
-      message: `OpenRouter model settings · ${summary(draft)}`,
+      message: `Model settings · ${summary(draft)}`,
       options: [
         { value: "model", label: "Model", hint: draft.model },
         { value: "reasoning", label: "Thinking level", hint: draft.reasoning },
@@ -146,11 +146,11 @@ export async function runEvecodeModelFlow({ prompter, argument = "", serverUrl }
     });
     if (row === "model") {
       draft.model = await prompter.select({
-        message: "Choose an OpenRouter model",
+        message: "Choose a model",
         options: MODEL_OPTIONS,
         initialValue: draft.model,
         search: true,
-        placeholder: "filter OpenRouter model IDs",
+        placeholder: "filter model IDs",
       });
     } else if (row === "reasoning") {
       draft.reasoning = await prompter.select({

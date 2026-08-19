@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   >(),
   authorizeOwner: vi.fn<() => Promise<Response | null>>(),
   hasAllowedOrigin: vi.fn<(request: Request) => boolean>(),
-  hasOpenRouterApiKey: vi.fn<() => boolean>(),
-  openRouterModel: vi.fn<(modelId: string) => unknown>(),
+  hasOpenAiConfig: vi.fn<() => boolean>(),
+  openAiModel: vi.fn<(modelId: string) => unknown>(),
   release: vi.fn(),
   streamText: vi.fn<
     (options: Record<string, unknown>) => { fullStream: AsyncIterable<unknown> }
@@ -25,9 +25,9 @@ vi.mock("@/lib/request-guard", () => ({
   hasAllowedOrigin: mocks.hasAllowedOrigin,
 }));
 
-vi.mock("@evetools/openrouter/server", () => ({
-  hasOpenRouterApiKey: mocks.hasOpenRouterApiKey,
-  openRouterModel: mocks.openRouterModel,
+vi.mock("@evetools/models/server", () => ({
+  hasOpenAiConfig: mocks.hasOpenAiConfig,
+  openAiModel: mocks.openAiModel,
 }));
 
 vi.mock("ai", async (importOriginal) => ({
@@ -47,7 +47,7 @@ function request(body: Record<string, unknown>) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       messages: [{ role: "user", content: "hello" }],
-      model: "openai/gpt-5.6-luna",
+      model: "chatgpt/gpt-5.6-luna",
       ...body,
     }),
   });
@@ -57,8 +57,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.authorizeOwner.mockResolvedValue(null);
   mocks.hasAllowedOrigin.mockReturnValue(true);
-  mocks.hasOpenRouterApiKey.mockReturnValue(true);
-  mocks.openRouterModel.mockReturnValue({ id: "model" });
+  mocks.hasOpenAiConfig.mockReturnValue(true);
+  mocks.openAiModel.mockReturnValue({ id: "model" });
   mocks.acquireRequestSlot.mockReturnValue({
     allowed: true,
     release: mocks.release,
@@ -68,7 +68,7 @@ beforeEach(() => {
   });
 });
 
-describe("Chat OpenRouter route", () => {
+describe("Chat gateway route", () => {
   it("returns the owner authorization response before model work", async () => {
     mocks.authorizeOwner.mockResolvedValue(
       Response.json({ error: "Authentication required." }, { status: 401 }),
@@ -77,7 +77,7 @@ describe("Chat OpenRouter route", () => {
     const response = await POST(request({}));
 
     expect(response.status).toBe(401);
-    expect(mocks.hasOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(mocks.hasOpenAiConfig).not.toHaveBeenCalled();
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
@@ -85,14 +85,14 @@ describe("Chat OpenRouter route", () => {
     const response = await POST(request({ model: "openai/not-curated" }));
 
     expect(response.status).toBe(400);
-    expect(mocks.hasOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(mocks.hasOpenAiConfig).not.toHaveBeenCalled();
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
   it("rejects image attachments for a text-only model", async () => {
     const response = await POST(
       request({
-        model: "~deepseek/deepseek-v4-flash-latest",
+        model: "grok/grok-code",
         messages: [
           {
             role: "user",
@@ -117,8 +117,8 @@ describe("Chat OpenRouter route", () => {
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
-  it("reports a missing OpenRouter key before rate limiting", async () => {
-    mocks.hasOpenRouterApiKey.mockReturnValue(false);
+  it("reports a missing gateway config before rate limiting", async () => {
+    mocks.hasOpenAiConfig.mockReturnValue(false);
 
     const response = await POST(request({}));
 
@@ -137,11 +137,11 @@ describe("Chat OpenRouter route", () => {
 
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("17");
-    expect(mocks.openRouterModel).not.toHaveBeenCalled();
+    expect(mocks.openAiModel).not.toHaveBeenCalled();
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
-  it("adapts OpenRouter text and reasoning events and releases its slot", async () => {
+  it("adapts text and reasoning events and releases its slot", async () => {
     mocks.streamText.mockReturnValue({
       fullStream: eventStream(
         { type: "reasoning-delta", text: "thinking" },
@@ -160,7 +160,7 @@ describe("Chat OpenRouter route", () => {
       { type: "reasoning", delta: "thinking" },
       { type: "text", delta: "hello" },
     ]);
-    expect(mocks.openRouterModel).toHaveBeenCalledWith("openai/gpt-5.6-luna");
+    expect(mocks.openAiModel).toHaveBeenCalledWith("chatgpt/gpt-5.6-luna");
     expect(mocks.release).toHaveBeenCalledOnce();
   });
 });

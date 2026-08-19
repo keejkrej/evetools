@@ -158,8 +158,8 @@ function openBrowser(url) {
 
 export async function launchWeb({ tuiRoot, workspace, port, open = true }) {
   const webRoot = await resolveWebRoot(tuiRoot);
-  if (!process.env.OPENROUTER_API_KEY?.trim()) {
-    throw new Error("OPENROUTER_API_KEY is required to launch Evecode web.");
+  if (!process.env.OPENAI_API_KEY?.trim() || !process.env.OPENAI_BASE_URL?.trim()) {
+    throw new Error("OPENAI_BASE_URL and OPENAI_API_KEY are required to launch Evecode web.");
   }
   const invocation = nextInvocation(webRoot, port);
   const child = spawn(invocation.command, invocation.args, webProcessOptions(webRoot, workspace));

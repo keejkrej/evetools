@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dispatchEvecodeCommand, parseEvecodeCommand } from "./commands.mjs";
-import { migrateOpenRouterModel, normalizeOpenRouterModel } from "./openrouter-models.mjs";
+import { migrateModel, normalizeModel } from "./models.mjs";
 import { runEvecodeAgent } from "./runtime.mjs";
 import { tsxInvocation } from "./subprocess.mjs";
 import { launchWeb } from "./web-runtime.mjs";
@@ -63,24 +63,24 @@ async function readModelConfig() {
   return defaults;
 }
 
-function requireOpenRouterKey() {
-  if (!process.env.OPENROUTER_API_KEY?.trim()) {
-    throw new Error("OPENROUTER_API_KEY is required to launch Evecode.");
+function requireOpenAiConfig() {
+  if (!process.env.OPENAI_API_KEY?.trim() || !process.env.OPENAI_BASE_URL?.trim()) {
+    throw new Error("OPENAI_BASE_URL and OPENAI_API_KEY are required to launch Evecode.");
   }
 }
 
 async function launchTui(command) {
-  requireOpenRouterKey();
+  requireOpenAiConfig();
   const workspace = await resolveLaunchWorkspace(command.workspace);
   const modelConfig = await readModelConfig();
   const selectedModel = command.model
-    ? normalizeOpenRouterModel(command.model)
-    : migrateOpenRouterModel(modelConfig.model);
+    ? normalizeModel(command.model)
+    : migrateModel(modelConfig.model);
   if (command.transitional) {
     console.log("Tip: direct TUI launch is a compatibility alias; prefer `evecode launch tui`.");
   }
   console.log(`Evecode TUI workspace: ${workspace}`);
-  console.log(`OpenRouter model: ${selectedModel}`);
+  console.log(`Model: ${selectedModel}`);
   console.log("Warning: Evecode's tools can edit files and execute commands here with your host permissions.\n");
   await runEvecodeAgent({
     agentRoot: tuiRoot,

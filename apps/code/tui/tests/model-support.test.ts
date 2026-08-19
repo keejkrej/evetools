@@ -2,33 +2,37 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  DEFAULT_OPENROUTER_MODEL,
-  migrateOpenRouterModel,
-  normalizeOpenRouterModel,
-  OPENROUTER_MODELS,
-} from "../bin/openrouter-models.mjs";
+  DEFAULT_MODEL,
+  migrateModel,
+  normalizeModel,
+  MODELS,
+} from "../bin/models.mjs";
 import {
-  resolveOpenRouterModel,
-  resolveOpenRouterModelId,
+  resolveModel,
+  resolveModelId,
 } from "../src/models/providers.js";
-import { OPENROUTER_MODELS as SHARED_OPENROUTER_MODELS } from "../../../../packages/openrouter/src/catalog.js";
+import { MODELS as SHARED_MODELS } from "../../../../packages/models/src/catalog.js";
 
-test("OpenRouter is the sole TUI model transport", () => {
-  const previous = process.env.OPENROUTER_API_KEY;
-  process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+test("OpenAI-compatible gateway is the sole TUI model transport", () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousUrl = process.env.OPENAI_BASE_URL;
+  process.env.OPENAI_API_KEY = "sk-sub-test";
+  process.env.OPENAI_BASE_URL = "https://subproxy.example/v1";
   try {
-    const selection = resolveOpenRouterModel("xiaomi/mimo-v2.5");
+    const selection = resolveModel("chatgpt/gpt-5.6-luna");
     const model = selection.model as unknown as {
       specificationVersion: string;
       provider: string;
       modelId: string;
     };
     assert.equal(model.specificationVersion, "v4");
-    assert.match(model.provider, /^openrouter(?:\.|$)/);
-    assert.equal(model.modelId, "xiaomi/mimo-v2.5");
+    assert.match(model.provider, /^openai(?:\.|$)/);
+    assert.equal(model.modelId, "chatgpt/gpt-5.6-luna");
   } finally {
-    if (previous === undefined) delete process.env.OPENROUTER_API_KEY;
-    else process.env.OPENROUTER_API_KEY = previous;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+    if (previousUrl === undefined) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = previousUrl;
   }
 });
 
@@ -37,21 +41,21 @@ test("the shared agent core resolves a curated web model from Eve client context
     { role: "user" as const, content: "Earlier prompt" },
     {
       role: "user" as const,
-      content: 'Client context:\n{"evecode":{"model":"openai/gpt-5.6-luna"}}',
+      content: 'Client context:\n{"evecode":{"model":"chatgpt/gpt-5.6-luna"}}',
     },
     { role: "user" as const, content: "Please inspect the repository." },
   ];
 
   assert.equal(
-    resolveOpenRouterModelId(messages, "xiaomi/mimo-v2.5"),
-    "openai/gpt-5.6-luna",
+    resolveModelId(messages, "grok/grok-code"),
+    "chatgpt/gpt-5.6-luna",
   );
 });
 
 test("the shared agent core falls back to TUI settings and rejects uncurated UI models", () => {
-  assert.equal(resolveOpenRouterModelId([], "xiaomi/mimo-v2.5"), "xiaomi/mimo-v2.5");
+  assert.equal(resolveModelId([], "grok/grok-code"), "grok/grok-code");
   assert.throws(
-    () => resolveOpenRouterModelId([{
+    () => resolveModelId([{
       role: "user",
       content: 'Client context:\n{"evecode":{"model":"anthropic/not-curated"}}',
     }], undefined),
@@ -59,33 +63,38 @@ test("the shared agent core falls back to TUI settings and rejects uncurated UI 
   );
 });
 
-test("the curated OpenRouter model order and legacy normalization stay stable", () => {
-  assert.equal(DEFAULT_OPENROUTER_MODEL, "~deepseek/deepseek-v4-flash-latest");
-  assert.deepEqual(OPENROUTER_MODELS, [
-    "openai/gpt-5.6-luna",
-    "xiaomi/mimo-v2.5",
-    "~deepseek/deepseek-v4-flash-latest",
-    "z-ai/glm-5.2",
-    "minimax/minimax-m3",
-    "moonshotai/kimi-k3",
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
+test("the curated model order and legacy normalization stay stable", () => {
+  assert.equal(DEFAULT_MODEL, "grok/grok-code");
+  assert.deepEqual(MODELS, [
+    "chatgpt/gpt-5.6-luna",
+    "chatgpt/gpt-5.6-terra",
+    "chatgpt/gpt-5.6-sol",
+    "chatgpt/gpt-5.6",
+    "chatgpt/gpt-5.5",
+    "grok/grok-4.6",
+    "grok/grok-4.5",
+    "grok/grok-4",
+    "grok/grok-code",
+    "cursor/composer-2.5",
+    "cursor/composer-2",
+    "cursor/auto",
   ]);
-  assert.equal(normalizeOpenRouterModel(undefined), DEFAULT_OPENROUTER_MODEL);
-  assert.equal(normalizeOpenRouterModel("gateway"), DEFAULT_OPENROUTER_MODEL);
-  assert.equal(normalizeOpenRouterModel("chatgpt/gpt-5.6-luna"), "openai/gpt-5.6-luna");
-  assert.equal(migrateOpenRouterModel("chatgpt/legacy-model"), DEFAULT_OPENROUTER_MODEL);
-  assert.equal(migrateOpenRouterModel("xai/legacy-model"), DEFAULT_OPENROUTER_MODEL);
-  assert.equal(normalizeOpenRouterModel("ollama-cloud/legacy-model"), DEFAULT_OPENROUTER_MODEL);
-  assert.throws(() => normalizeOpenRouterModel("not-a-model-id"), /provider\/model-id/);
-  assert.throws(() => normalizeOpenRouterModel("anthropic/not-curated"), /curated catalog/);
+  assert.equal(normalizeModel(undefined), DEFAULT_MODEL);
+  assert.equal(normalizeModel("gateway"), DEFAULT_MODEL);
+  assert.equal(normalizeModel("openai/gpt-5.6-luna"), "chatgpt/gpt-5.6-luna");
+  assert.equal(migrateModel("openai/legacy-model"), DEFAULT_MODEL);
+  assert.equal(migrateModel("xai/legacy-model"), DEFAULT_MODEL);
+  assert.equal(normalizeModel("ollama-cloud/legacy-model", { legacyFallback: true }), DEFAULT_MODEL);
+  assert.throws(() => normalizeModel("not-a-model-id"), /provider\/model-id/);
+  assert.throws(() => normalizeModel("anthropic/not-curated"), /curated catalog/);
   assert.deepEqual(
-    OPENROUTER_MODELS,
-    SHARED_OPENROUTER_MODELS.map(({ id }) => id),
-    "the standalone TUI catalog must stay in parity with @evetools/openrouter",
+    MODELS,
+    SHARED_MODELS.map(({ id }) => id),
+    "the standalone TUI catalog must stay in parity with @evetools/models",
   );
 });
 
-test("obsolete subscription OAuth transports and dependencies are absent", async () => {
+test("obsolete subscription OAuth transports and OpenRouter adapters are absent", async () => {
   const [manifest, providers] = await Promise.all([
     readFile("package.json", "utf8"),
     readFile("src/models/providers.ts", "utf8"),
@@ -93,10 +102,12 @@ test("obsolete subscription OAuth transports and dependencies are absent", async
   for (const contents of [manifest, providers]) {
     assert.doesNotMatch(
       contents,
-      /@ai-sdk\/openai"|@earendil-works\/pi-coding-agent|prime-agent-eve|chatgpt\.com|api\.x\.ai|ollama\.com|AI_GATEWAY_API_KEY/,
+      /@openrouter\/ai-sdk-provider|@earendil-works\/pi-coding-agent|prime-agent-eve|chatgpt\.com|api\.x\.ai|ollama\.com|AI_GATEWAY_API_KEY|OPENROUTER_API_KEY/,
     );
   }
   await assert.rejects(access("src/models/oauth"));
+  await assert.rejects(access("bin/openrouter-models.mjs"));
   assert.doesNotMatch(providers, /\.zshrc|EVE_AGENT_OAUTH|EVECODE_TUI_OAUTH/);
-  assert.match(providers, /process\.env\.OPENROUTER_API_KEY/);
+  assert.match(providers, /process\.env\.OPENAI_API_KEY/);
+  assert.match(providers, /process\.env\.OPENAI_BASE_URL/);
 });

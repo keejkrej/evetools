@@ -8,7 +8,7 @@ Bearer token to `/api/health`, `/api/models`, and `/api/chat`.
 ## Configuration
 
 Configure the web deployment first. `CLERK_SECRET_KEY`, `EVE_OWNER_USER_ID`,
-and `OPENROUTER_API_KEY` stay on that server and must never be placed in an
+`OPENAI_BASE_URL`, and `OPENAI_API_KEY` stay on that server and must never be placed in an
 `EXPO_PUBLIC_*` variable.
 
 The mobile bundle needs only public configuration:

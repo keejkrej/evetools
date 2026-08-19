@@ -1,4 +1,4 @@
-import { listOpenRouterModels } from "@evetools/openrouter/server";
+import { listModels } from "@evetools/models/server";
 import { authorizeOwner } from "@/lib/owner-auth";
 
 export const runtime = "nodejs";
@@ -8,5 +8,5 @@ export async function GET() {
   const unauthorized = await authorizeOwner();
   if (unauthorized) return unauthorized;
 
-  return Response.json(await listOpenRouterModels());
+  return Response.json(await listModels());
 }

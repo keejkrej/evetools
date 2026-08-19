@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   >(),
   authorizeOwner: vi.fn<() => Promise<Response | null>>(),
   hasAllowedOrigin: vi.fn<(request: Request) => boolean>(),
-  hasOpenRouterApiKey: vi.fn<() => boolean>(),
-  openRouterModel: vi.fn<(modelId: string) => unknown>(),
+  hasOpenAiConfig: vi.fn<() => boolean>(),
+  openAiModel: vi.fn<(modelId: string) => unknown>(),
   createPenpotDrawingClientFromEnv: vi.fn(),
   inspectDrawing: vi.fn(),
   applyDrawing: vi.fn(),
@@ -30,9 +30,9 @@ vi.mock("@/lib/request-guard", () => ({
   hasAllowedOrigin: mocks.hasAllowedOrigin,
 }));
 
-vi.mock("@evetools/openrouter/server", () => ({
-  hasOpenRouterApiKey: mocks.hasOpenRouterApiKey,
-  openRouterModel: mocks.openRouterModel,
+vi.mock("@evetools/models/server", () => ({
+  hasOpenAiConfig: mocks.hasOpenAiConfig,
+  openAiModel: mocks.openAiModel,
 }));
 
 vi.mock("@/lib/penpot-drawing-client", () => ({
@@ -56,7 +56,7 @@ function request(body: Record<string, unknown>) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       messages: [{ role: "user", content: "draw a box" }],
-      model: "openai/gpt-5.6-luna",
+      model: "chatgpt/gpt-5.6-luna",
       ...body,
     }),
   });
@@ -66,8 +66,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.authorizeOwner.mockResolvedValue(null);
   mocks.hasAllowedOrigin.mockReturnValue(true);
-  mocks.hasOpenRouterApiKey.mockReturnValue(true);
-  mocks.openRouterModel.mockReturnValue({ id: "model" });
+  mocks.hasOpenAiConfig.mockReturnValue(true);
+  mocks.openAiModel.mockReturnValue({ id: "model" });
   mocks.acquireRequestSlot.mockReturnValue({
     allowed: true,
     release: mocks.release,
@@ -84,7 +84,7 @@ beforeEach(() => {
   });
 });
 
-describe("Draw OpenRouter route", () => {
+describe("Draw gateway route", () => {
   it("returns the owner authorization response before model work", async () => {
     mocks.authorizeOwner.mockResolvedValue(
       Response.json({ error: "Access denied." }, { status: 403 }),
@@ -93,7 +93,7 @@ describe("Draw OpenRouter route", () => {
     const response = await POST(request({}));
 
     expect(response.status).toBe(403);
-    expect(mocks.hasOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(mocks.hasOpenAiConfig).not.toHaveBeenCalled();
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
@@ -101,14 +101,14 @@ describe("Draw OpenRouter route", () => {
     const response = await POST(request({ model: "openai/not-curated" }));
 
     expect(response.status).toBe(400);
-    expect(mocks.hasOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(mocks.hasOpenAiConfig).not.toHaveBeenCalled();
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
   it("rejects image attachments for a text-only model", async () => {
     const response = await POST(
       request({
-        model: "z-ai/glm-5.2",
+        model: "grok/grok-code",
         messages: [
           {
             role: "user",
@@ -134,7 +134,7 @@ describe("Draw OpenRouter route", () => {
   });
 
   it("reports a missing key before acquiring a request slot", async () => {
-    mocks.hasOpenRouterApiKey.mockReturnValue(false);
+    mocks.hasOpenAiConfig.mockReturnValue(false);
 
     const response = await POST(request({}));
 
@@ -153,7 +153,7 @@ describe("Draw OpenRouter route", () => {
 
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("23");
-    expect(mocks.openRouterModel).not.toHaveBeenCalled();
+    expect(mocks.openAiModel).not.toHaveBeenCalled();
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 

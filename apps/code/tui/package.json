@@ -27,7 +27,7 @@
     "info": "eve info"
   },
   "dependencies": {
-    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@ai-sdk/openai-compatible": "^3.0.31",
     "ai": "^7.0.65",
     "tsx": "^4.23.9",
     "zod": "4.4.3"

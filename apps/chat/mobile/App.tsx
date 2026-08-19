@@ -7,11 +7,11 @@ import { tokenCache } from "@clerk/expo/token-cache";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  CHAT_OPENROUTER_MODEL,
-  OPENROUTER_MODELS,
-  openRouterModelSupportsImages,
-  type OpenRouterModelOption,
-} from "@evetools/openrouter";
+  CHAT_MODEL,
+  MODELS,
+  modelSupportsImages,
+  type ModelOption,
+} from "@evetools/models";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -66,7 +66,7 @@ type Conversation = {
 };
 
 const STORAGE_KEY = "eve-mobile-conversations-v1";
-const MODEL_KEY = "eve-mobile-model-openrouter-v1";
+const MODEL_KEY = "eve-mobile-model-v2";
 const CLERK_PUBLISHABLE_KEY =
   process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
 const RAW_API_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -109,9 +109,9 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [model, setModel] = useState(CHAT_OPENROUTER_MODEL);
+  const [model, setModel] = useState(CHAT_MODEL);
   const [models, setModels] =
-    useState<readonly OpenRouterModelOption[]>(OPENROUTER_MODELS);
+    useState<readonly ModelOption[]>(MODELS);
   const [modelOpen, setModelOpen] = useState(false);
   const [expandedActivity, setExpandedActivity] = useState("");
   const [configurationStatus, setConfigurationStatus] = useState<
@@ -127,7 +127,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
   const active =
     conversations.find((conversation) => conversation.id === activeId) ??
     conversations[0];
-  const attachmentsAllowed = openRouterModelSupportsImages(model);
+  const attachmentsAllowed = modelSupportsImages(model);
   const filteredConversations = conversations.filter((conversation) => {
     const haystack = `${conversation.title} ${conversation.messages
       .map((message) => message.content)
@@ -182,7 +182,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
   useEffect(() => {
     const controller = new AbortController();
     async function loadModels() {
-      let catalog: readonly OpenRouterModelOption[] = OPENROUTER_MODELS;
+      let catalog: readonly ModelOption[] = MODELS;
       try {
         const response = await authenticatedFetch(`${apiUrl}/api/models`, {
           signal: controller.signal,
@@ -193,7 +193,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
         }
         if (!response.ok) throw new Error("Could not load models.");
         const payload = (await response.json()) as {
-          models?: OpenRouterModelOption[];
+          models?: ModelOption[];
         };
         if (payload.models?.length) catalog = payload.models;
       } catch (error) {
@@ -325,7 +325,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
       Alert.alert(
         "Eve isn’t connected",
         configurationStatus === "missing"
-          ? "The web deployment needs OPENROUTER_API_KEY configured."
+          ? "The web deployment needs OPENAI_BASE_URL and OPENAI_API_KEY configured."
           : configurationStatus === "unauthorized"
             ? "Sign out, then use the Clerk account configured as the owner."
           : "Check EXPO_PUBLIC_API_URL and your network connection.",
@@ -540,7 +540,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
     if (!attachmentsAllowed) {
       Alert.alert(
         "Text-only model",
-        "Choose an image-capable OpenRouter model before attaching images.",
+        "Choose an image-capable model before attaching images.",
       );
       return;
     }
@@ -585,7 +585,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
 
   function selectModel(id: string) {
     setModel(id);
-    if (!openRouterModelSupportsImages(id)) setAttachments([]);
+    if (!modelSupportsImages(id)) setAttachments([]);
     setModelOpen(false);
     AsyncStorage.setItem(MODEL_KEY, id).catch(() => undefined);
   }
@@ -607,7 +607,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
             <Ionicons color={colors.foreground} name="menu" size={24} />
           </Pressable>
           <Pressable
-            accessibilityLabel="Choose OpenRouter model"
+            accessibilityLabel="Choose model"
             onPress={() => setModelOpen(true)}
             style={styles.headerTitle}
           >
@@ -652,7 +652,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
                 {configurationStatus === "checking"
                   ? "Connecting to Eve"
                   : configurationStatus === "missing"
-                    ? "OpenRouter API key required"
+                    ? "Gateway API key required"
                     : configurationStatus === "unauthorized"
                       ? "Owner access required"
                     : "Eve is offline"}
@@ -661,7 +661,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
                 {configurationStatus === "checking"
                   ? "Checking the server configuration."
                   : configurationStatus === "missing"
-                    ? "Configure OPENROUTER_API_KEY on the web deployment."
+                    ? "Configure OPENAI_BASE_URL and OPENAI_API_KEY on the web deployment."
                     : configurationStatus === "unauthorized"
                       ? "Sign out, then use the Clerk account configured as EVE_OWNER_USER_ID."
                     : "Check EXPO_PUBLIC_API_URL and your connection."}
@@ -1004,7 +1004,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
           >
             <View style={[styles.menuHeader, { borderColor: colors.border }]}>
               <Text style={[styles.menuTitle, { color: colors.foreground }]}>
-                Choose an OpenRouter model
+                Choose a model
               </Text>
               <Pressable
                 accessibilityLabel="Close model selector"
@@ -1016,7 +1016,7 @@ function EveApp({ apiUrl, getToken, onSignOut }: EveAppProps) {
             <View style={styles.modelCatalogIntro}>
               <Ionicons color={colors.muted} name="globe-outline" size={18} />
               <Text style={[styles.modelCatalogText, { color: colors.muted }]}>
-                Models are provided by OpenRouter.
+                Models are served through the OpenAI-compatible gateway.
               </Text>
             </View>
             <FlatList

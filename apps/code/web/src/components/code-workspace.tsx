@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  CODE_OPENROUTER_MODEL,
-  OPENROUTER_MODELS,
-  type OpenRouterModelOption,
-} from "@evetools/openrouter";
+  CODE_MODEL,
+  MODELS,
+  type ModelOption,
+} from "@evetools/models";
 import { Client, type ClientSessionState, type MessageStreamEvent } from "eve/client";
 import {
   useEveAgent,
@@ -37,7 +37,7 @@ type SavedConversation = {
 };
 
 const CONVERSATION_KEY = "evecode-web-conversation-v1";
-const MODEL_KEY = "evetools-code-openrouter-model-v1";
+const MODEL_KEY = "evetools-code-model-v2";
 
 async function readSavedConversation(signal: AbortSignal): Promise<SavedConversation> {
   const saved = parseSavedEveSession(localStorage.getItem(CONVERSATION_KEY));
@@ -97,8 +97,8 @@ function SessionWorkspace({
   const [panelLoading, setPanelLoading] = useState(false);
   const [workspaceChanges, setWorkspaceChanges] = useState<WorkspaceChange[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [model, setModel] = useState(CODE_OPENROUTER_MODEL);
-  const [models, setModels] = useState<readonly OpenRouterModelOption[]>(OPENROUTER_MODELS);
+  const [model, setModel] = useState(CODE_MODEL);
+  const [models, setModels] = useState<readonly ModelOption[]>(MODELS);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   const agent = useEveAgent({
@@ -131,13 +131,13 @@ function SessionWorkspace({
   useEffect(() => {
     const controller = new AbortController();
     const savedModel = localStorage.getItem(MODEL_KEY);
-    if (savedModel && OPENROUTER_MODELS.some((item) => item.id === savedModel)) {
+    if (savedModel && MODELS.some((item) => item.id === savedModel)) {
       setModel(savedModel);
     }
     void fetch("/api/models", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Could not load OpenRouter models.");
-        return response.json() as Promise<{ models?: OpenRouterModelOption[] }>;
+        if (!response.ok) throw new Error("Could not load models.");
+        return response.json() as Promise<{ models?: ModelOption[] }>;
       })
       .then((payload) => {
         if (!payload.models?.length) return;
@@ -150,7 +150,7 @@ function SessionWorkspace({
       })
       .catch((error) => {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setModels(OPENROUTER_MODELS);
+          setModels(MODELS);
         }
       });
     return () => controller.abort();
@@ -290,8 +290,8 @@ function SessionWorkspace({
             <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="Ask Eve to work on this codebase…" rows={3} />
             <div className="composer-actions">
               <span>{workspace?.root ?? "Connecting…"}</span>
-              <label className="model-picker" title="OpenRouter model">
-                <span>OpenRouter</span>
+              <label className="model-picker" title="Model">
+                <span>Model</span>
                 <select value={model} onChange={(event) => { setModel(event.target.value); localStorage.setItem(MODEL_KEY, event.target.value); }} disabled={busy}>
                   {models.map((item) => <option key={item.id} title={item.description} value={item.id}>{item.displayName}</option>)}
                 </select>

@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@evetools/openrouter": "workspace:*",
+    "@evetools/models": "workspace:*",
     "ai": "^7.0.65",
     "eve": "https://github.com/keejkrej/eve.git#82a4c974346f4237dcb6d3a961f9242d16add108&path:/packages/eve",
     "next": "16.2.12",

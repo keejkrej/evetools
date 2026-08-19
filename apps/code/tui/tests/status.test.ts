@@ -18,7 +18,7 @@ test("product status reports roots, model, key presence, and surfaces without ex
   await Promise.all([dataRoot, workspace].map((directory) => mkdir(directory)));
   await writeFile(path.join(dataRoot, "config.json"), JSON.stringify({
     version: 1,
-    model: "xiaomi/mimo-v2.5",
+    model: "chatgpt/gpt-5.6-luna",
     reasoning: "high",
   }));
   const secret = "must-not-appear-in-status";
@@ -29,15 +29,17 @@ test("product status reports roots, model, key presence, and surfaces without ex
       ...process.env,
       EVECODE_DATA_ROOT: dataRoot,
       EVECODE_WORKSPACE_ROOT: workspace,
-      OPENROUTER_API_KEY: secret,
+      OPENAI_API_KEY: secret,
+      OPENAI_BASE_URL: "https://subproxy.example/v1",
     },
   });
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, new RegExp(`Data root: ${dataRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.match(result.stdout, /Default workspace:/);
-  assert.match(result.stdout, /Selected OpenRouter model: xiaomi\/mimo-v2\.5/);
-  assert.match(result.stdout, /OPENROUTER_API_KEY: configured/);
+  assert.match(result.stdout, /Selected model: chatgpt\/gpt-5\.6-luna/);
+  assert.match(result.stdout, /OPENAI_BASE_URL: configured/);
+  assert.match(result.stdout, /OPENAI_API_KEY: configured/);
   assert.match(result.stdout, /TUI surface: available/);
   assert.match(result.stdout, /Web surface:/);
   assert.doesNotMatch(result.stdout, new RegExp(secret));

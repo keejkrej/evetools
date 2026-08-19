@@ -19,10 +19,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:ui-parity
-      - run: pnpm --filter @evetools/chat-shell --filter @evetools/openrouter --filter @evetools/code --filter @evetools/chat-mobile --filter @evetools/evebind typecheck
+      - run: pnpm --filter @evetools/chat-shell --filter @evetools/models --filter @evetools/code --filter @evetools/chat-mobile --filter @evetools/evebind typecheck
       - run: pnpm --filter @evetools/chat-mobile test
       - run: pnpm --filter @evetools/chat-mobile export:android
-      - run: pnpm --filter @evetools/openrouter --filter @evetools/code --filter @evetools/evebind test
+      - run: pnpm --filter @evetools/models --filter @evetools/code --filter @evetools/evebind test
       - run: pnpm --filter @evetools/chat test
       - run: pnpm --filter @evetools/draw test
       - run: pnpm --filter @evetools/chat build

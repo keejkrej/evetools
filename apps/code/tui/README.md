@@ -26,14 +26,15 @@ Running `evecode [--model provider/model] [workspace]` directly remains a transi
 Set the one provider credential before starting either surface, then optionally choose another curated model:
 
 ```sh
-export OPENROUTER_API_KEY=...
-evecode model xiaomi/mimo-v2.5
+export OPENAI_BASE_URL=https://subproxy.example/v1
+export OPENAI_API_KEY=sk-sub-...
+evecode model chatgpt/gpt-5.6-luna
 ```
 
-In PowerShell, set the same process environment variable with
-`$env:OPENROUTER_API_KEY = "..."`.
+In PowerShell, set the same process environment variables with
+`$env:OPENAI_BASE_URL = "..."` and `$env:OPENAI_API_KEY = "..."`.
 
-OpenRouter is the sole model provider. Evecode reads `OPENROUTER_API_KEY` from the process environment and never reads shell startup files or stores the key. `evecode login` only reports whether that environment variable is present.
+The OpenAI-compatible gateway is the sole model transport. Evecode reads `OPENAI_BASE_URL` and `OPENAI_API_KEY` from the process environment and never reads shell startup files or stores the key. `evecode login` only reports whether those environment variables are present.
 
 Model settings live under `EVECODE_DATA_ROOT`, which defaults to `~/.evecode`. With no explicit data-root variable, config reads fall back to the former default `~/.config/eve-agent`; writes migrate to `~/.evecode`. Setting `EVECODE_DATA_ROOT` or legacy `EVE_AGENT_HOME` isolates reads and writes to that explicit directory.
 
@@ -42,20 +43,20 @@ Run against the current repository or select another writable directory:
 ```sh
 evecode launch tui
 evecode launch tui /path/to/repository
-evecode launch tui --model xiaomi/mimo-v2.5 .
+evecode launch tui --model chatgpt/gpt-5.6-luna .
 ```
 
 Both launch surfaces resolve the workspace in the same order: positional path, `EVECODE_WORKSPACE_ROOT`, `INIT_CWD`, then the current directory. The launcher passes that one required, resolved writable directory to the shared agent and the selected UI. Starting the web package directly without `EVECODE_WORKSPACE_ROOT` fails with setup guidance instead of silently choosing a different directory.
 
 ## Web surface
 
-`evecode launch web` locates the sibling `apps/code/web` package, starts its local Next server on `127.0.0.1`, and opens it after the server is ready. Pass `--no-open` for headless use. It receives the same resolved workspace and `OPENROUTER_API_KEY` as the TUI.
+`evecode launch web` locates the sibling `apps/code/web` package, starts its local Next server on `127.0.0.1`, and opens it after the server is ready. Pass `--no-open` for headless use. It receives the same resolved workspace and gateway credentials as the TUI.
 
-The web app is not bundled into `@evetools/code-tui`. A packed/global TUI install therefore reports a clear error for `launch web`; run that surface from the Evetools source checkout. The web UI mounts this same authored eve agent and durable session protocol instead of maintaining a second model loop. `evecode status` reports the resolved data root and default workspace, selected OpenRouter model, key presence, and which surfaces this install can launch.
+The web app is not bundled into `@evetools/code-tui`. A packed/global TUI install therefore reports a clear error for `launch web`; run that surface from the Evetools source checkout. The web UI mounts this same authored eve agent and durable session protocol instead of maintaining a second model loop. `evecode status` reports the resolved data root and default workspace, selected model, key presence, and which surfaces this install can launch.
 
 ## TUI commands
 
-- `/model` configures the OpenRouter model ID and thinking level.
+- `/model` configures the model ID and thinking level.
 - `/traces` opens the local trace viewer.
 - `/compact` compacts a long session.
 - `/clear`, `/new`, and `/reset` manage conversation state.

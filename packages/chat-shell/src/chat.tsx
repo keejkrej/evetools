@@ -3,25 +3,15 @@
 import * as React from "react";
 import Image from "next/image";
 import {
-  Anthropic,
-  DeepSeek,
-  Gemini,
-  Meta,
   Grok,
-  Minimax,
-  Mistral,
-  Moonshot,
   OpenAI,
-  OpenRouter,
-  Qwen,
-  ZAI,
 } from "@lobehub/icons";
 import {
-  CHAT_OPENROUTER_MODEL,
-  OPENROUTER_MODELS,
-  openRouterModelSupportsImages,
-  type OpenRouterModelOption,
-} from "@evetools/openrouter";
+  CHAT_MODEL,
+  MODELS,
+  modelSupportsImages,
+  type ModelOption,
+} from "@evetools/models";
 import {
   Check,
   CheckCircle2,
@@ -168,14 +158,14 @@ export type ChatShellProps = {
 };
 type Health = {
   status?: string;
-  providers?: { openrouter?: boolean };
+  providers?: { openai?: boolean };
 };
 
 const MODEL_CATALOG_STALE_TIME = 5 * 60 * 1000;
 const fetchModelCatalog = async (url: string) => {
   const response = await fetch(url);
   if (!response.ok) throw new Error("Could not load models.");
-  return response.json() as Promise<{ models?: OpenRouterModelOption[] }>;
+  return response.json() as Promise<{ models?: ModelOption[] }>;
 };
 
 type ChatStreamEvent =
@@ -215,35 +205,10 @@ function EveAvatar() {
 
 function ModelProviderIcon({ modelId }: { modelId: string }) {
   const className = "size-5 shrink-0";
-  const normalizedId = modelId.startsWith("~") ? modelId.slice(1) : modelId;
-
-  if (normalizedId.startsWith("anthropic/")) {
-    return <Anthropic className={className} />;
-  }
-  if (normalizedId.startsWith("openai/")) {
-    return <OpenAI className={className} />;
-  }
-  if (normalizedId.startsWith("google/")) {
-    return <Gemini className={className} />;
-  }
-  if (normalizedId.startsWith("x-ai/")) {
+  if (modelId.startsWith("grok/") || modelId.startsWith("x-ai/") || modelId.startsWith("xai/")) {
     return <Grok className={className} />;
   }
-  if (normalizedId.startsWith("moonshotai/")) {
-    return <Moonshot className={className} />;
-  }
-  if (normalizedId.startsWith("z-ai/")) {
-    return <ZAI className={className} />;
-  }
-  if (normalizedId.startsWith("minimax/")) return <Minimax className={className} />;
-  if (normalizedId.startsWith("deepseek/")) return <DeepSeek className={className} />;
-  if (normalizedId.startsWith("meta-llama/")) return <Meta className={className} />;
-  if (normalizedId.startsWith("mistralai/")) return <Mistral className={className} />;
-  if (normalizedId.startsWith("qwen/")) return <Qwen className={className} />;
-  if (normalizedId.startsWith("xiaomi/")) return <OpenRouter className={className} />;
-  if (normalizedId.startsWith("nvidia/")) return <OpenRouter className={className} />;
-
-  return <OpenRouter className={className} />;
+  return <OpenAI className={className} />;
 }
 
 function createConversation(): Conversation {
@@ -592,12 +557,12 @@ export function ChatShell({
   storageNamespace = "eve",
 }: ChatShellProps = {}) {
   const STORAGE_KEY = `${storageNamespace}-conversations-v1`;
-  const MODEL_KEY = `${storageNamespace}-openrouter-model-v1`;
+  const MODEL_KEY = `${storageNamespace}-model-v2`;
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [activeId, setActiveId] = React.useState("");
   const [input, setInput] = React.useState("");
   const [composerMultiline, setComposerMultiline] = React.useState(false);
-  const [model, setModel] = React.useState(CHAT_OPENROUTER_MODEL);
+  const [model, setModel] = React.useState(CHAT_MODEL);
   const [streaming, setStreaming] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState("");
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -622,7 +587,7 @@ export function ChatShell({
   const { signOut } = useClerk();
   const { resolvedTheme, setTheme } = useTheme();
   const [themeMounted, setThemeMounted] = React.useState(false);
-  const { data: modelCatalog } = useSWR<{ models?: OpenRouterModelOption[] }>(
+  const { data: modelCatalog } = useSWR<{ models?: ModelOption[] }>(
     withBasePath(basePath, "/api/models"),
     fetchModelCatalog,
     {
@@ -633,8 +598,8 @@ export function ChatShell({
   );
   const models = modelCatalog?.models?.length
     ? modelCatalog.models
-    : OPENROUTER_MODELS;
-  const modelSupportsImages = openRouterModelSupportsImages(model);
+    : MODELS;
+  const supportsImages = modelSupportsImages(model);
 
   const active =
     conversations.find((conversation) => conversation.id === activeId) ??
@@ -679,7 +644,7 @@ export function ChatShell({
       })
       .then((payload) => {
         setConfigurationStatus(
-          payload.status === "ready" && payload.providers?.openrouter !== false
+          payload.status === "ready" && payload.providers?.openai !== false
             ? "ready"
             : "missing",
         );
@@ -824,12 +789,12 @@ export function ChatShell({
     if (configurationStatus !== "ready") {
       toast.error(
         configurationStatus === "missing"
-          ? "OPENROUTER_API_KEY is not configured."
+          ? "OPENAI_BASE_URL and OPENAI_API_KEY are required."
           : "Eve is not connected to the server yet.",
       );
       return;
     }
-    if (messageAttachments.length && !modelSupportsImages) {
+    if (messageAttachments.length && !supportsImages) {
       toast.error("Choose an image-capable model before sending attachments.");
       return;
     }
@@ -1010,7 +975,7 @@ export function ChatShell({
 
   async function addImages(files: FileList | null) {
     if (!files?.length) return;
-    if (!modelSupportsImages) {
+    if (!supportsImages) {
       toast.error("The selected model does not support image attachments.");
       return;
     }
@@ -1044,7 +1009,7 @@ export function ChatShell({
   function selectModel(id: string) {
     setModel(id);
     localStorage.setItem(MODEL_KEY, id);
-    if (attachments.length && !openRouterModelSupportsImages(id)) {
+    if (attachments.length && !modelSupportsImages(id)) {
       setAttachments([]);
       toast.info("Attachments were removed because that model is text-only.");
     }
@@ -1153,12 +1118,12 @@ export function ChatShell({
             disabled={
               configurationStatus !== "ready" ||
               streaming ||
-              !modelSupportsImages ||
+              !supportsImages ||
               attachments.length >= 3
             }
             size="icon-sm"
             tooltip={
-              modelSupportsImages
+              supportsImages
                 ? "Attach images"
                 : "Selected model is text-only"
             }
@@ -1202,8 +1167,7 @@ export function ChatShell({
                 className="max-h-none w-80 overflow-hidden rounded-2xl bg-popover/55 p-2 shadow-lg backdrop-blur-xl"
               >
                 <div className="mb-2 flex items-center gap-2 px-2 py-1 text-xs font-semibold text-muted-foreground">
-                  <OpenRouter className="size-4" />
-                  OpenRouter
+                  Models
                 </div>
                 <ScrollArea className="h-[min(28rem,calc(var(--available-height)-1rem))]">
                   <div className="pr-2">
@@ -1587,12 +1551,12 @@ export function ChatShell({
                 {configurationStatus === "checking"
                   ? "Connecting"
                   : configurationStatus === "missing"
-                    ? "OpenRouter API key required"
+                    ? "Gateway API key required"
                     : "Eve is offline"}
               </AlertTitle>
               <AlertDescription className="sr-only">
                 {configurationStatus === "missing"
-                  ? "Add OPENROUTER_API_KEY and restart or redeploy."
+                  ? "Add OPENAI_BASE_URL and OPENAI_API_KEY and restart or redeploy."
                   : "The API is unavailable."}
               </AlertDescription>
             </Alert>

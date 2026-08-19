@@ -1,6 +1,6 @@
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel, ModelMessage } from "ai";
-import { normalizeOpenRouterModel } from "../../bin/openrouter-models.mjs";
+import { normalizeModel } from "../../bin/models.mjs";
 
 const CLIENT_CONTEXT_PREFIX = "Client context:\n";
 
@@ -30,7 +30,7 @@ function messageText(message: ModelMessage): string | undefined {
  * to the agent runtime. The TUI has no per-turn envelope and uses its process
  * setting as the fallback.
  */
-export function resolveOpenRouterModelId(
+export function resolveModelId(
   messages: readonly ModelMessage[],
   fallback: string | undefined,
 ): string {
@@ -45,22 +45,24 @@ export function resolveOpenRouterModelId(
       if (typeof requested !== "string") {
         throw new Error("Evecode client model must be a string.");
       }
-      return normalizeOpenRouterModel(requested);
+      return normalizeModel(requested);
     } catch (error) {
       if (error instanceof SyntaxError) continue;
       throw error;
     }
   }
 
-  return normalizeOpenRouterModel(fallback);
+  return normalizeModel(fallback);
 }
 
-export function resolveOpenRouterModel(value: string | undefined): ModelSelection {
-  const provider = createOpenRouter({
-    apiKey: process.env.OPENROUTER_API_KEY?.trim() || "openrouter-key-not-configured",
+export function resolveModel(value: string | undefined): ModelSelection {
+  const provider = createOpenAICompatible({
+    name: "openai",
+    apiKey: process.env.OPENAI_API_KEY?.trim() || "openai-key-not-configured",
+    baseURL: process.env.OPENAI_BASE_URL?.trim() || "http://127.0.0.1/v1",
   });
   return {
-    model: provider(normalizeOpenRouterModel(value)),
+    model: provider.chatModel(normalizeModel(value)),
     // Use a conservative context-window floor shared by the curated models for compaction.
     modelContextWindowTokens: 128_000,
   };

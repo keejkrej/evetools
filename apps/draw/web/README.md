@@ -11,7 +11,8 @@ small revisioned drawing contract through Penpot's bounded MCP profile.
    application on the host:
 
    ```dotenv
-   OPENROUTER_API_KEY=...
+   OPENAI_BASE_URL=https://subproxy.example/v1
+   OPENAI_API_KEY=sk-sub-...
    PENPOT_MCP_URL=http://127.0.0.1:4401/mcp
    ```
 

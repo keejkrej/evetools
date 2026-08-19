@@ -160,7 +160,7 @@ export function createTuiOptions({ agentRoot, serverUrl }) {
       "Use /traces to inspect a run.",
       "Type /help to see every command.",
     ],
-    externalProviderDisplayNames: { openrouter: "OpenRouter" },
+    externalProviderDisplayNames: { openai: "OpenAI" },
     showVercelAuthSetupIssues: false,
   };
 }

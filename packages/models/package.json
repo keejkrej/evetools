@@ -1,5 +1,5 @@
 {
-  "name": "@evetools/openrouter",
+  "name": "@evetools/models",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@openrouter/ai-sdk-provider": "^3.0.0"
+    "@ai-sdk/openai-compatible": "^3.0.31"
   },
   "devDependencies": {
     "@types/node": "^20",

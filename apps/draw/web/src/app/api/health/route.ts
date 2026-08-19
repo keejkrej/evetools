@@ -1,5 +1,5 @@
 import { authorizeOwner } from "@/lib/owner-auth";
-import { hasOpenRouterApiKey } from "@evetools/openrouter/server";
+import { hasOpenAiConfig } from "@evetools/models/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,13 +7,13 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const unauthorized = await authorizeOwner();
   if (unauthorized) return unauthorized;
-  const configured = hasOpenRouterApiKey();
+  const configured = hasOpenAiConfig();
 
   return Response.json(
     {
       status: configured ? "ready" : "missing_key",
       providers: {
-        openrouter: configured,
+        openai: configured,
       },
     },
     {

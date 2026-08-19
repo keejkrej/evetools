@@ -12,10 +12,10 @@ import { resolveLaunchWorkspace } from "../bin/workspace.mjs";
 
 test("the unified parser selects explicit TUI and web surfaces", () => {
   assert.deepEqual(
-    parseEvecodeCommand(["launch", "tui", "--model", "xiaomi/mimo-v2.5", "./repo"]),
+    parseEvecodeCommand(["launch", "tui", "--model", "chatgpt/gpt-5.6-luna", "./repo"]),
     {
       kind: "tui",
-      model: "xiaomi/mimo-v2.5",
+      model: "chatgpt/gpt-5.6-luna",
       transitional: false,
       workspace: "./repo",
     },

@@ -6,9 +6,12 @@ vi.mock("@/lib/owner-auth", () => ({
 
 import { POST } from "./route";
 
-const live = process.env.OPENROUTER_INTEGRATION === "1" && !!process.env.OPENROUTER_API_KEY;
+const live =
+  process.env.OPENAI_INTEGRATION === "1" &&
+  !!process.env.OPENAI_API_KEY &&
+  !!process.env.OPENAI_BASE_URL;
 
-describe.skipIf(!live)("OpenRouter chat integration", () => {
+describe.skipIf(!live)("OpenAI-compatible chat integration", () => {
   it(
     "streams a real model response through the public event contract",
     async () => {
@@ -20,7 +23,7 @@ describe.skipIf(!live)("OpenRouter chat integration", () => {
             "x-forwarded-for": `integration-${Date.now()}`,
           },
           body: JSON.stringify({
-            model: "openai/gpt-5.6-luna",
+            model: "chatgpt/gpt-5.6-luna",
             messages: [
               {
                 role: "user",

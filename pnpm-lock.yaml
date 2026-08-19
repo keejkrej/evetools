@@ -24,9 +24,9 @@ importers:
       '@clerk/expo':
         specifier: ^4.3.0
         version: 4.3.0(14336be8a8fc36f4f132b4d21389d0f2)
-      '@evetools/openrouter':
+      '@evetools/models':
         specifier: workspace:*
-        version: link:../../../packages/openrouter
+        version: link:../../../packages/models
       '@expo/vector-icons':
         specifier: ^15.1.1
         version: 15.1.1(expo-font@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@8.1.1)(utf-8-validate@6.0.6))(react@19.2.3))(react-native@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.3)(supports-color@8.1.1)(utf-8-validate@6.0.6))(react@19.2.3)
@@ -97,9 +97,9 @@ importers:
       '@evetools/chat-shell':
         specifier: workspace:*
         version: link:../../../packages/chat-shell
-      '@evetools/openrouter':
+      '@evetools/models':
         specifier: workspace:*
-        version: link:../../../packages/openrouter
+        version: link:../../../packages/models
       '@evetools/ui':
         specifier: workspace:*
         version: link:../../../packages/ui
@@ -212,9 +212,9 @@ importers:
 
   apps/code/tui:
     dependencies:
-      '@openrouter/ai-sdk-provider':
-        specifier: ^3.0.0
-        version: 3.0.0(ai@7.0.65(zod@4.4.3))(zod@4.4.3)
+      '@ai-sdk/openai-compatible':
+        specifier: ^3.0.31
+        version: 3.0.31(zod@4.4.3)
       ai:
         specifier: ^7.0.65
         version: 7.0.65(zod@4.4.3)
@@ -237,9 +237,9 @@ importers:
 
   apps/code/web:
     dependencies:
-      '@evetools/openrouter':
+      '@evetools/models':
         specifier: workspace:*
-        version: link:../../../packages/openrouter
+        version: link:../../../packages/models
       ai:
         specifier: ^7.0.65
         version: 7.0.65(zod@4.4.3)
@@ -292,9 +292,9 @@ importers:
       '@evetools/drawing':
         specifier: workspace:*
         version: link:../../../packages/drawing
-      '@evetools/openrouter':
+      '@evetools/models':
         specifier: workspace:*
-        version: link:../../../packages/openrouter
+        version: link:../../../packages/models
       '@evetools/ui':
         specifier: workspace:*
         version: link:../../../packages/ui
@@ -419,9 +419,9 @@ importers:
       '@clerk/nextjs':
         specifier: ^7.6.3
         version: 7.6.3(next@16.2.12(@babel/core@7.29.7(supports-color@8.1.1))(babel-plugin-macros@3.1.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      '@evetools/openrouter':
+      '@evetools/models':
         specifier: workspace:*
-        version: link:../openrouter
+        version: link:../models
       '@evetools/ui':
         specifier: workspace:*
         version: link:../ui
@@ -494,11 +494,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(vite@8.2.0(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/openrouter:
+  packages/models:
     dependencies:
-      '@openrouter/ai-sdk-provider':
-        specifier: ^3.0.0
-        version: 3.0.0(ai@7.0.65(zod@4.4.3))(zod@4.4.3)
+      '@ai-sdk/openai-compatible':
+        specifier: ^3.0.31
+        version: 3.0.31(zod@4.4.3)
     devDependencies:
       '@types/node':
         specifier: ^20
@@ -611,6 +611,12 @@ packages:
 
   '@ai-sdk/mcp@2.0.20':
     resolution: {integrity: sha512-YFDIEFjbP271My1dZmsSf+VYR2YlKdnk2E28ccNvpCw3ohF0eTvCCzm9n1ueOr48H+T4Agyad07H4IETl2avHA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/openai-compatible@3.0.31':
+    resolution: {integrity: sha512-g6kbWJzI1mfHoZp2vXPyb/fiMrK8pNRU2dbum8rBHxemx+ryBJWFAwTndBaVefm+gx9A6fK7J/hSrdfRdVJlQQ==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -2044,13 +2050,6 @@ packages:
   '@nolyfill/is-core-module@1.0.39':
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
-
-  '@openrouter/ai-sdk-provider@3.0.0':
-    resolution: {integrity: sha512-m9XTSWoODH2RM5OsZpaGiN7QRR8cdP5paBWq699Tu3JVmGPBKT8xF8XwV0ZBVVsjikD/JgWfak4VSsTR4wAVbg==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      ai: ^7.0.0
-      zod: ^3.25.76 || ^4.1.8
 
   '@oxc-project/types@0.142.0':
     resolution: {integrity: sha512-7W+2q5AKQVU36fkaryontrHn3YDt1RyUYXatw9i5H8ocYe2sPKSFB6eS8WNPeRKiN1qAWWZUPm7gwFzJGrccqQ==}
@@ -9309,6 +9308,12 @@ snapshots:
       pkce-challenge: 5.0.1
       zod: 4.4.3
 
+  '@ai-sdk/openai-compatible@3.0.31(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.7
+      '@ai-sdk/provider-utils': 5.0.27(zod@4.4.3)
+      zod: 4.4.3
+
   '@ai-sdk/provider-utils@5.0.16(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 4.0.4
@@ -11195,11 +11200,6 @@ snapshots:
       fastq: 1.20.1
 
   '@nolyfill/is-core-module@1.0.39': {}
-
-  '@openrouter/ai-sdk-provider@3.0.0(ai@7.0.65(zod@4.4.3))(zod@4.4.3)':
-    dependencies:
-      ai: 7.0.65(zod@4.4.3)
-      zod: 4.4.3
 
   '@oxc-project/types@0.142.0': {}
 

@@ -1,13 +1,13 @@
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import {
-  CHAT_OPENROUTER_MODEL,
-  isCuratedOpenRouterModel,
-  openRouterModelSupportsImages,
-} from "@evetools/openrouter";
+  CHAT_MODEL,
+  isCuratedModel,
+  modelSupportsImages,
+} from "@evetools/models";
 import {
-  hasOpenRouterApiKey,
-  openRouterModel,
-} from "@evetools/openrouter/server";
+  hasOpenAiConfig,
+  openAiModel,
+} from "@evetools/models/server";
 import { type ExportDrawingOutcome } from "@evetools/drawing";
 import { authorizeOwner } from "@/lib/owner-auth";
 import { z } from "zod";
@@ -108,8 +108,8 @@ const requestSchema = z.object({
     .min(1)
     .max(100)
     .regex(/^~?[a-zA-Z0-9._-]+\/[a-zA-Z0-9._:/-]+$/)
-    .refine(isCuratedOpenRouterModel)
-    .default(CHAT_OPENROUTER_MODEL),
+    .refine(isCuratedModel)
+    .default(CHAT_MODEL),
 });
 
 export async function POST(request: Request) {
@@ -123,9 +123,9 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Invalid chat request." }, { status: 400 });
   }
-  if (!hasOpenRouterApiKey()) {
+  if (!hasOpenAiConfig()) {
     return Response.json(
-      { error: "OPENROUTER_API_KEY is not configured." },
+      { error: "OPENAI_BASE_URL and OPENAI_API_KEY are required." },
       { status: 503 },
     );
   }
@@ -146,7 +146,7 @@ export async function POST(request: Request) {
   }
   if (
     attachmentBytes > 0 &&
-    !openRouterModelSupportsImages(parsed.data.model)
+    !modelSupportsImages(parsed.data.model)
   ) {
     return Response.json(
       { error: "The selected model does not support image attachments." },
@@ -231,7 +231,7 @@ export async function POST(request: Request) {
 
   const startStream = () =>
     streamText({
-      model: openRouterModel(parsed.data.model),
+      model: openAiModel(parsed.data.model),
       system: drawingClient ? PENPOT_SYSTEM_PROMPT : NO_PENPOT_SYSTEM_PROMPT,
       messages,
       tools: drawingTools,

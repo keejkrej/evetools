@@ -37,10 +37,10 @@ test("legacy default config is read and the next write migrates it to ~/.evecode
       reasoning: "medium",
       priority: false,
     });
-    await setSelectedModel("xiaomi/mimo-v2.5");
+    await setSelectedModel("chatgpt/gpt-5.6-luna");
     assert.deepEqual(JSON.parse(await readFile(currentConfigFile, "utf8")), {
       version: 1,
-      model: "xiaomi/mimo-v2.5",
+      model: "chatgpt/gpt-5.6-luna",
       reasoning: "medium",
     });
     assert.equal(JSON.parse(await readFile(legacyConfigFile, "utf8")).model, "xai/legacy-model");
@@ -80,10 +80,10 @@ test("an explicit Evecode or legacy data root never reads the default legacy con
     }));
     try {
       assert.deepEqual(await readConfig(), { version: 1 }, selectedVariable);
-      await setSelectedModel("xiaomi/mimo-v2.5");
+      await setSelectedModel("chatgpt/gpt-5.6-luna");
       assert.equal(
         JSON.parse(await readFile(path.join(explicitRoot, "config.json"), "utf8")).model,
-        "xiaomi/mimo-v2.5",
+        "chatgpt/gpt-5.6-luna",
       );
     } finally {
       if (previous.home === undefined) delete process.env.HOME;

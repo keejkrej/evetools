@@ -6,7 +6,7 @@ Evetools is a Turborepo for three deliberately separate agentic products:
 - **Evedraw** (`@evetools/draw`) — an agentic visual canvas with a web interface
 - **Evecode** — an agentic coding product with web (`@evetools/code`) and terminal (`@evetools/code-tui`) interfaces, inspired by Codex app and the UX of `../t3code`
 
-The repository was seeded from the current merged `evechat` codebase. The obsolete standalone `evedraw` repository was not used. T3 Code is a product reference for Evecode, not an architectural template. Evecode's web and terminal interfaces both run the same authored agent on the first-party [eve](https://eve.dev) runtime; Chat and Draw use the Vercel AI SDK. Every product sends model traffic through OpenRouter.
+The repository was seeded from the current merged `evechat` codebase. The obsolete standalone `evedraw` repository was not used. T3 Code is a product reference for Evecode, not an architectural template. Evecode's web and terminal interfaces both run the same authored agent on the first-party [eve](https://eve.dev) runtime; Chat and Draw use the Vercel AI SDK. Every product sends model traffic through an OpenAI-compatible gateway (`OPENAI_BASE_URL` + `OPENAI_API_KEY`), typically [subproxy](../subproxy).
 
 ## Repository shape
 
@@ -24,13 +24,13 @@ packages/
   agent/             @evetools/agent
   drawing/           @evetools/drawing
   evebind/           @evetools/evebind
-  openrouter/        @evetools/openrouter
+  models/            @evetools/models
   ui/                @evetools/ui
 ```
 
 `@evetools/evebind` is a protein-binder design orchestrator (not a generative model): it plans Anthropic-style de novo miniprotein campaigns, writes command templates for published structure/sequence/co-fold tools, and ranks already-computed scores. It does not run GPUs, download weights, or invent residues.
 
-`@evetools/openrouter` owns the curated model catalog and server-side OpenRouter adapter used across product selectors. `@evetools/drawing` owns Evedraw's editor-neutral `eve.design/v1` session contract, schemas, faults, and in-memory conformance adapter. `@evetools/agent` is the product-neutral event-stream seam used by Chat and Draw. Evecode's authored agent, instructions, model policy, tools, approvals, and durable session protocol live once under `apps/code/tui`; Next.js and the terminal are UI adapters over that core. Shared UI primitives and AI presentation modules live in `@evetools/ui`.
+`@evetools/models` owns the curated model catalog and the OpenAI-compatible client used across product selectors. `@evetools/drawing` owns Evedraw's editor-neutral `eve.design/v1` session contract, schemas, faults, and in-memory conformance adapter. `@evetools/agent` is the product-neutral event-stream seam used by Chat and Draw. Evecode's authored agent, instructions, model policy, tools, approvals, and durable session protocol live once under `apps/code/tui`; Next.js and the terminal are UI adapters over that core. Shared UI primitives and AI presentation modules live in `@evetools/ui`.
 
 ## Development
 
@@ -40,7 +40,7 @@ Node.js 24+ and pnpm are required.
 pnpm install
 cp .env.example .env
 cp apps/chat/mobile/.env.example apps/chat/mobile/.env.local
-# Add OPENROUTER_API_KEY.
+# Add OPENAI_BASE_URL and OPENAI_API_KEY.
 pnpm dev:chat
 pnpm dev:chat-mobile
 pnpm dev:draw
@@ -59,7 +59,7 @@ through one command: `evecode launch web` opens the Next.js interface, while
 login, model selection, and status; see [`apps/code/tui`](apps/code/tui) for
 details and release instructions.
 
-Model selectors expose a small, tool-capable shortlist rather than OpenRouter's full catalog. The apps refresh availability and display metadata from OpenRouter while keeping the curated order stable.
+Model selectors expose a small, tool-capable shortlist rather than the gateway's full catalog. The apps refresh availability from `/v1/models` while keeping the curated order stable.
 
 Evechat mobile uses the same Clerk owner identity as the web app. Set
 `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and a device-reachable

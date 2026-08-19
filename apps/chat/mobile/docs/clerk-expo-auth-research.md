@@ -131,11 +131,11 @@ The mobile source statically reads only:
 - `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `EXPO_PUBLIC_API_URL`
 
-No Clerk secret key, owner ID, or OpenRouter API key is referenced by mobile
+No Clerk secret key, owner ID, or gateway API key is referenced by mobile
 code. Expo inlines statically referenced `EXPO_PUBLIC_*` values into the client
 bundle and warns that every such value is public. Therefore the publishable key
-and API URL belong there, while `CLERK_SECRET_KEY`, `EVE_OWNER_USER_ID`, and
-`OPENROUTER_API_KEY` must remain server-side. See Expo's current official
+and API URL belong there, while `CLERK_SECRET_KEY`, `EVE_OWNER_USER_ID`,
+`OPENAI_BASE_URL`, and `OPENAI_API_KEY` must remain server-side. See Expo's current official
 [environment-variable guide](https://docs.expo.dev/guides/environment-variables/)
 and Expo's [Clerk setup guide](https://docs.expo.dev/guides/using-clerk/).
 

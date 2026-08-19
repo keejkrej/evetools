@@ -34,29 +34,27 @@ The transitional `eve-agent` alias must remain behaviorally identical, but relea
 
 From a disposable Git repository, start `evecode launch tui .`. It must build automatically if the package contains no `.output`, bind its server only to `127.0.0.1`, open the Evecode TUI, and report the selected model in both the footer and `/eve/v1/info`. Confirm the transitional direct form `evecode .` reaches the same TUI.
 
-In an Evetools source checkout, run `evecode launch web --no-open .` and verify the Next server binds only to `127.0.0.1` with the same resolved workspace. A packed TUI-only install must instead explain that the web surface is unavailable; it must not silently launch another surface. Both surfaces use only `OPENROUTER_API_KEY`.
+In an Evetools source checkout, run `evecode launch web --no-open .` and verify the Next server binds only to `127.0.0.1` with the same resolved workspace. A packed TUI-only install must instead explain that the web surface is unavailable; it must not silently launch another surface. Both surfaces use only `OPENAI_BASE_URL` and `OPENAI_API_KEY`.
 
 Complete two turns in one session and assert assistant output rather than echoed input. Exercise `/model`, `/compact`, `/reset`, cancellation, one safe file edit, one rejected traversal, and one approval-gated shell command.
 
-## OpenRouter model matrix
+## Gateway model matrix
 
-Run the two-turn check through OpenRouter with at least two models from the shared catalog, in this product order:
+Run the two-turn check through the OpenAI-compatible gateway with at least two models from the shared catalog, in this product order:
 
-- `openai/gpt-5.6-luna`
-- `xiaomi/mimo-v2.5`
-- `~deepseek/deepseek-v4-flash-latest` (Code/TUI default)
-- `z-ai/glm-5.2`
-- `minimax/minimax-m3`
-- `moonshotai/kimi-k3`
-- `nvidia/nemotron-3-ultra-550b-a55b:free`
+- `chatgpt/gpt-5.6-luna`
+- `chatgpt/gpt-5.6-terra`
+- `grok/grok-code` (Code/TUI default)
+- `grok/grok-4.6`
+- `cursor/composer-2.5`
 
-Verify `evecode status` reports only whether `OPENROUTER_API_KEY` is configured and never prints its value.
+Verify `evecode status` reports only whether `OPENAI_BASE_URL` and `OPENAI_API_KEY` are configured and never prints their values.
 
 ## Upgrade compatibility
 
 Install the prior release and select a model. Install the candidate and verify:
 
-- a legacy model setting is normalized to an OpenRouter model ID and the environment key is used;
+- a legacy model setting is normalized to a curated gateway model ID and the environment key is used;
 - `evecode` starts in the same repository;
 - new state is written under `EVECODE_DATA_ROOT`/`~/.evecode` once explicitly configured;
 - neither source checkout nor package upgrade requires a `node_modules` patch.

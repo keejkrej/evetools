@@ -34,29 +34,29 @@ test("package exposes Evecode with a transitional alias and the forked public TU
 
 test("runtime settings use only Evecode internal override names", () => {
   assert.deepEqual(settingsEnvironment({
-    model: "xiaomi/mimo-v2.5",
+    model: "chatgpt/gpt-5.6-luna",
     reasoning: "high",
   }), {
-    EVECODE_TUI_MODEL_OVERRIDE: "xiaomi/mimo-v2.5",
+    EVECODE_TUI_MODEL_OVERRIDE: "chatgpt/gpt-5.6-luna",
     EVECODE_TUI_REASONING_OVERRIDE: "high",
   });
 });
 
 test("model changes restart the dynamic runtime while reasoning changes rebuild it", () => {
   assert.equal(settingsRequireBuild(
-    { model: "xiaomi/mimo-v2.5", reasoning: "high" },
+    { model: "chatgpt/gpt-5.6-luna", reasoning: "high" },
     { model: "openai/gpt-5.6-luna", reasoning: "high" },
   ), false);
   assert.equal(settingsRequireBuild(
-    { model: "xiaomi/mimo-v2.5", reasoning: "high" },
-    { model: "xiaomi/mimo-v2.5", reasoning: "xhigh" },
+    { model: "chatgpt/gpt-5.6-luna", reasoning: "high" },
+    { model: "chatgpt/gpt-5.6-luna", reasoning: "xhigh" },
   ), true);
   assert.equal(settingsRequireBuild({}, { reasoning: "high" }), false);
 });
 
 test("missing or stale source output requests a rebuild", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "evecode-runtime-missing-"));
-  assert.equal(await runtimeMatchesSettings(root, { model: "xiaomi/mimo-v2.5", reasoning: "high" }), false);
+  assert.equal(await runtimeMatchesSettings(root, { model: "chatgpt/gpt-5.6-luna", reasoning: "high" }), false);
 });
 
 test("compiled runtime matching requires the shared dynamic model policy and reasoning", async () => {
@@ -72,15 +72,15 @@ test("compiled runtime matching requires the shared dynamic model policy and rea
     },
   }));
   assert.equal(await runtimeMatchesSettings(outputRoot, {
-    model: "xiaomi/mimo-v2.5",
+    model: "chatgpt/gpt-5.6-luna",
     reasoning: "xhigh",
   }), true);
   assert.equal(await runtimeMatchesSettings(outputRoot, {
-    model: "z-ai/glm-5.2",
+    model: "grok/grok-code",
     reasoning: "xhigh",
   }), true);
   assert.equal(await runtimeMatchesSettings(outputRoot, {
-    model: "z-ai/glm-5.2",
+    model: "grok/grok-code",
     reasoning: "high",
   }), false);
 });
@@ -97,7 +97,7 @@ test("TUI customization is supplied through the public fork seam", () => {
     workspaceRoot: "/tmp/evecode-tui",
   });
   assert.equal(options.showVercelAuthSetupIssues, false);
-  assert.deepEqual(options.externalProviderDisplayNames, { openrouter: "OpenRouter" });
+  assert.deepEqual(options.externalProviderDisplayNames, { openai: "OpenAI" });
   assert.match(options.headerTips?.join("\n") ?? "", /\/model/);
   assert.equal(typeof options.modelCommand, "function");
 });
