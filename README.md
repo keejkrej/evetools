@@ -23,8 +23,11 @@ apps/
     desktop/         @evetools/code-desktop
 packages/
   agent/             @evetools/agent
+  evebind/           @evetools/evebind
   ui/                @evetools/ui
 ```
+
+`@evetools/evebind` is a protein-binder design orchestrator (not a generative model): it plans Anthropic-style de novo miniprotein campaigns, writes command templates for published structure/sequence/co-fold tools, and ranks already-computed scores. It does not run GPUs, download weights, or invent residues.
 
 `@evetools/agent` is the product-neutral Eve harness seam around the Vercel AI SDK. Products own their instructions, tools, persistence, and workflows. In particular, drawing contracts stay in Draw, while coding workspace, terminal, and selective `~/.agents/skills` loading stay in Code. Chat and Draw do not discover coding skills. Shared UI primitives and AI presentation modules live in `@evetools/ui`.
 
