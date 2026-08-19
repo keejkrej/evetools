@@ -20,6 +20,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:ui-parity
       - run: pnpm --filter @evetools/chat-shell typecheck
+      - run: pnpm --filter @evetools/evebind typecheck
+      - run: pnpm --filter @evetools/evebind test
       - run: pnpm --filter @evetools/chat test
       - run: pnpm --filter @evetools/draw test
       - run: pnpm --filter @evetools/chat build
