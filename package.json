@@ -1,7 +1,10 @@
 {
   "name": "evetools",
   "private": true,
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev",
     "build": "turbo build",
@@ -10,11 +13,12 @@
     "check": "pnpm check:ui-parity && turbo lint test build typecheck",
     "check:ui-parity": "node scripts/check-ui-parity.mjs",
     "dev:chat": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/chat",
-    "dev:chat-mobile": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo start --filter=@evetools/chat-mobile",
+    "dev:chat-mobile": "turbo start --filter=@evetools/chat-mobile",
     "dev:draw": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/draw",
-    "dev:draw-desktop": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/draw-desktop",
-    "dev:code": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/code",
-    "dev:code-desktop": "node --env-file-if-exists=.env node_modules/turbo/bin/turbo dev --filter=@evetools/code-desktop"
+    "evecode": "node --env-file-if-exists=.env apps/code/tui/bin/evecode.mjs",
+    "dev:code": "node --env-file-if-exists=.env apps/code/tui/bin/evecode.mjs launch web --no-open",
+    "dev:code:web": "node --env-file-if-exists=.env apps/code/tui/bin/evecode.mjs launch web --no-open",
+    "dev:code:tui": "node --env-file-if-exists=.env apps/code/tui/bin/evecode.mjs launch tui"
   },
   "devDependencies": {
     "turbo": "^2.5.8",

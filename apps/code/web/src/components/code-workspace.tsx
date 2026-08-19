@@ -1,110 +1,124 @@
 "use client";
 
-import { decodeEveStream, type EveAgentEvent, type EveToolEvent, type EveTurnStatus } from "@evetools/agent";
+import {
+  CODE_OPENROUTER_MODEL,
+  OPENROUTER_MODELS,
+  type OpenRouterModelOption,
+} from "@evetools/openrouter";
+import { Client, type ClientSessionState, type MessageStreamEvent } from "eve/client";
+import {
+  useEveAgent,
+  type EveDynamicToolPart,
+  type EveMessage,
+  type EveMessageInputRequest,
+  type EveMessagePart,
+} from "eve/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { parseSavedEveSession, savedEveSession } from "@/lib/eve-session";
 
-type Message = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  reasoning?: string;
-  tools?: EveToolEvent[];
-  turnId?: string;
-  turnStatus?: EveTurnStatus;
-  startedAt?: number;
-  completedAt?: number;
-  eventCursor?: number;
+type WorkspaceChange = {
+  path: string;
+  index: string;
+  workingTree: string;
+  originalPath?: string;
 };
-type Thread = {
-  id: string;
-  title: string;
-  messages: Message[];
-  updatedAt: number;
-  status: "idle" | "working" | "error";
+type Workspace = {
+  configured: true;
+  name: string;
+  root: string;
+  files: string[];
+  changes: WorkspaceChange[];
 };
-type WorkspaceChange = { path: string; index: string; workingTree: string; originalPath?: string };
-type Workspace = { configured: true; name: string; root: string; files: string[]; changes: WorkspaceChange[] };
 type Panel = { kind: "changes" } | { kind: "file"; path: string } | { kind: "diff"; path: string };
-type PermissionMode = "ask" | "trusted";
-type Approval = {
-  id: string;
-  threadId: string;
-  kind: "write_file" | "run_command";
-  title: string;
-  detail: string;
-  createdAt: number;
+type SavedConversation = {
+  events?: readonly MessageStreamEvent[];
+  restoreError?: string;
+  session?: ClientSessionState;
 };
 
-const THREADS_KEY = "evetools-code-threads-v1";
-const ACTIVE_KEY = "evetools-code-active-thread-v1";
-const PERMISSION_KEY = "evetools-code-permission-v1";
+const CONVERSATION_KEY = "evecode-web-conversation-v1";
+const MODEL_KEY = "evetools-code-openrouter-model-v1";
 
-const newThread = (): Thread => ({
-  id: crypto.randomUUID(),
-  title: "New thread",
-  messages: [],
-  updatedAt: Date.now(),
-  status: "idle",
-});
+async function readSavedConversation(signal: AbortSignal): Promise<SavedConversation> {
+  const saved = parseSavedEveSession(localStorage.getItem(CONVERSATION_KEY));
+  if (!saved) return {};
+  try {
+    return await new Client({ host: "" })
+      .sessions.attach(saved.sessionId, { streamIndex: 0 })
+      .snapshot({ signal });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    const message = error instanceof Error ? error.message : "Unknown replay error.";
+    return { restoreError: `The previous Eve session could not be restored: ${message}` };
+  }
+}
 
 export function CodeWorkspace() {
+  const [saved, setSaved] = useState<SavedConversation | null>(null);
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void readSavedConversation(controller.signal).then((conversation) => {
+      if (!controller.signal.aborted) setSaved(conversation);
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  if (saved === null) {
+    return <main className="setup-screen"><div className="setup-card">Starting Evecode…</div></main>;
+  }
+
+  return (
+    <SessionWorkspace
+      initialConversation={saved}
+      key={generation}
+      onNewSession={() => {
+        localStorage.removeItem(CONVERSATION_KEY);
+        setSaved({});
+        setGeneration((value) => value + 1);
+      }}
+    />
+  );
+}
+
+function SessionWorkspace({
+  initialConversation,
+  onNewSession,
+}: {
+  initialConversation: SavedConversation;
+  onNewSession: () => void;
+}) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceError, setWorkspaceError] = useState("");
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [activeId, setActiveId] = useState("");
   const [input, setInput] = useState("");
   const [panel, setPanel] = useState<Panel | null>({ kind: "changes" });
   const [panelContent, setPanelContent] = useState("");
   const [panelLoading, setPanelLoading] = useState(false);
   const [workspaceChanges, setWorkspaceChanges] = useState<WorkspaceChange[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [approvalError, setApprovalError] = useState("");
-  const [threadsHydrated, setThreadsHydrated] = useState(false);
-  const [threadStorageError, setThreadStorageError] = useState("");
-  const turnControllersRef = useRef(new Map<string, AbortController>());
-  const reconnectingTurnsRef = useRef(new Set<string>());
+  const [model, setModel] = useState(CODE_OPENROUTER_MODEL);
+  const [models, setModels] = useState<readonly OpenRouterModelOption[]>(OPENROUTER_MODELS);
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  const active = threads.find((thread) => thread.id === activeId) ?? null;
-  const workingCount = threads.filter((thread) => thread.status === "working").length;
+  const agent = useEveAgent({
+    initialEvents: initialConversation.events,
+    initialSession: initialConversation.session,
+    prepareSend: (turn) => ({
+      ...turn,
+      clientContext: { evecode: { model } },
+    }),
+  });
+  const busy = agent.status === "submitted" || agent.status === "streaming";
 
   useEffect(() => {
-    setPermissionMode(localStorage.getItem(PERMISSION_KEY) === "trusted" ? "trusted" : "ask");
-    const hydrateThreads = async () => {
-      try {
-        const response = await fetch("/api/threads", { cache: "no-store" });
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error ?? "Could not load threads.");
-        let initial = body.threads as Thread[];
-        const local = JSON.parse(localStorage.getItem(THREADS_KEY) ?? "[]") as Thread[];
-        if (!initial.length && local.length) {
-          const migration = await fetch("/api/threads", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ threads: local.map((thread) => ({ ...thread, status: "idle" })) }),
-          });
-          const migrated = await migration.json();
-          if (!migration.ok) throw new Error(migrated.error ?? "Could not migrate local threads.");
-          initial = migrated.threads as Thread[];
-          localStorage.removeItem(THREADS_KEY);
-        }
-        if (!initial.length) initial = [newThread()];
-        const savedActive = localStorage.getItem(ACTIVE_KEY);
-        setThreads(initial);
-        setActiveId(initial.some((thread) => thread.id === savedActive) ? savedActive! : initial[0].id);
-      } catch (error) {
-        const initial = newThread();
-        setThreads([initial]);
-        setActiveId(initial.id);
-        setThreadStorageError(error instanceof Error ? error.message : "Thread storage unavailable.");
-      } finally {
-        setThreadsHydrated(true);
-      }
-    };
-    void hydrateThreads();
-    void fetch("/api/workspace")
+    if (agent.session) {
+      localStorage.setItem(CONVERSATION_KEY, JSON.stringify(savedEveSession(agent.session)));
+    }
+  }, [agent.session]);
+
+  useEffect(() => {
+    void fetch("/api/workspace", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error ?? "Workspace unavailable.");
@@ -114,67 +128,48 @@ export function CodeWorkspace() {
       .catch((error: Error) => setWorkspaceError(error.message));
   }, []);
 
-  useEffect(() => () => {
-    for (const controller of turnControllersRef.current.values()) controller.abort();
-    turnControllersRef.current.clear();
+  useEffect(() => {
+    const controller = new AbortController();
+    const savedModel = localStorage.getItem(MODEL_KEY);
+    if (savedModel && OPENROUTER_MODELS.some((item) => item.id === savedModel)) {
+      setModel(savedModel);
+    }
+    void fetch("/api/models", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load OpenRouter models.");
+        return response.json() as Promise<{ models?: OpenRouterModelOption[] }>;
+      })
+      .then((payload) => {
+        if (!payload.models?.length) return;
+        setModels(payload.models);
+        setModel((current) => {
+          const stored = localStorage.getItem(MODEL_KEY);
+          if (stored && payload.models!.some((item) => item.id === stored)) return stored;
+          return payload.models!.some((item) => item.id === current) ? current : payload.models![0].id;
+        });
+      })
+      .catch((error) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setModels(OPENROUTER_MODELS);
+        }
+      });
+    return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    if (!threadsHydrated || !threads.length) return;
-    const timer = window.setTimeout(() => {
-      void Promise.all(threads.map(async (thread) => {
-        const response = await fetch(`/api/threads/${thread.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ thread }),
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null);
-          throw new Error(body?.error ?? `Could not save ${thread.title}.`);
-        }
-      })).then(() => setThreadStorageError(""), (error: Error) => setThreadStorageError(error.message));
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [threads, threadsHydrated]);
-  useEffect(() => {
-    if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
-  }, [activeId]);
-  useEffect(() => {
-    localStorage.setItem(PERMISSION_KEY, permissionMode);
-  }, [permissionMode]);
-  useEffect(() => {
-    if (!activeId || active?.status !== "working" || permissionMode !== "ask") {
-      setApprovals([]);
-      return;
-    }
-    let disposed = false;
-    const load = async () => {
-      try {
-        const response = await fetch(`/api/approvals?threadId=${encodeURIComponent(activeId)}`, { cache: "no-store" });
-        const body = await response.json();
-        if (!disposed && response.ok) setApprovals(body.approvals as Approval[]);
-      } catch {
-        // A transient polling failure must not interrupt the active turn.
-      }
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 500);
-    return () => { disposed = true; window.clearInterval(timer); };
-  }, [activeId, active?.status, permissionMode]);
   useEffect(() => {
     timelineRef.current?.scrollTo({ top: timelineRef.current.scrollHeight, behavior: "smooth" });
-  }, [active?.messages]);
-
-  const updateThread = useCallback((id: string, update: (thread: Thread) => Thread) => {
-    setThreads((current) => current.map((thread) => thread.id === id ? update(thread) : thread));
-  }, []);
+  }, [agent.data.messages]);
 
   const openPanel = useCallback(async (next: Panel) => {
     setPanel(next);
     setPanelLoading(true);
     try {
-      const query = next.kind === "changes" ? "view=diff" : next.kind === "diff" ? `view=diff&file=${encodeURIComponent(next.path)}` : `file=${encodeURIComponent(next.path)}`;
-      const response = await fetch(`/api/workspace?${query}`);
+      const query = next.kind === "changes"
+        ? "view=diff"
+        : next.kind === "diff"
+          ? `view=diff&file=${encodeURIComponent(next.path)}`
+          : `file=${encodeURIComponent(next.path)}`;
+      const response = await fetch(`/api/workspace?${query}`, { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not load workspace data.");
       setPanelContent(next.kind === "file" ? body.content : body.diff);
@@ -188,207 +183,44 @@ export function CodeWorkspace() {
 
   useEffect(() => { void openPanel({ kind: "changes" }); }, [openPanel]);
 
-  const createThread = () => {
-    const thread = newThread();
-    setThreads((current) => [thread, ...current]);
-    setActiveId(thread.id);
-    setInput("");
-  };
+  const pendingRequests = useMemo(() => agent.data.messages.flatMap((message) =>
+    message.parts.flatMap((part) => {
+      if (part.type !== "dynamic-tool" || part.state !== "approval-requested") return [];
+      const request = part.toolMetadata?.eve?.inputRequest;
+      return request ? [{ part, request }] : [];
+    })), [agent.data.messages]);
 
-  const stopThread = useCallback((id: string) => {
-    const thread = threads.find((item) => item.id === id);
-    const turnId = [...(thread?.messages ?? [])].reverse().find((message) => message.turnStatus === "running")?.turnId;
-    if (turnId) void fetch(`/api/turns/${turnId}`, { method: "DELETE" });
-    turnControllersRef.current.get(id)?.abort();
-  }, [threads]);
-
-  const removeThread = (id: string) => {
-    if (!confirm("Delete this thread?")) return;
-    stopThread(id);
-    void fetch(`/api/threads/${id}`, { method: "DELETE" }).then(async (response) => {
-      if (!response.ok && response.status !== 404) {
-        const body = await response.json().catch(() => null);
-        setThreadStorageError(body?.error ?? "Could not delete thread.");
-      }
-    }).catch((error: Error) => setThreadStorageError(error.message));
-    setThreads((current) => {
-      const remaining = current.filter((thread) => thread.id !== id);
-      if (id === activeId) {
-        const replacement = remaining[0] ?? newThread();
-        setActiveId(replacement.id);
-        return remaining.length ? remaining : [replacement];
-      }
-      return remaining;
-    });
-  };
-
-  async function decideApproval(id: string, approved: boolean) {
-    setApprovals((current) => current.filter((approval) => approval.id !== id));
-    const response = await fetch("/api/approvals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, approved }),
-    });
-    if (!response.ok && response.status !== 404) {
-      const body = await response.json().catch(() => null);
-      setApprovalError(body?.error ?? "Could not submit approval decision.");
+  const title = useMemo(() => {
+    for (const message of agent.data.messages) {
+      if (message.role !== "user") continue;
+      const text = message.parts.find((part) => part.type === "text");
+      if (text?.type === "text" && text.text.trim()) return text.text.trim().slice(0, 52);
     }
-  }
-
-  const consumeTurn = useCallback(async (
-    response: Response,
-    threadId: string,
-    assistantId: string,
-    initial: { text?: string; reasoning?: string } = {},
-  ): Promise<EveTurnStatus | null> => {
-    if (!response.ok || !response.body) {
-      const body = await response.json().catch(() => null);
-      throw new Error(body?.error ?? "Eve turn is unavailable.");
-    }
-    let text = initial.text ?? "";
-    let reasoning = initial.reasoning ?? "";
-    let finalStatus: EveTurnStatus | null = null;
-    let streamError = "";
-    for await (const event of decodeEveStream(response.body)) {
-      if (event.type === "error") {
-        streamError = event.message;
-        continue;
-      }
-      if (event.type === "text") text += event.delta;
-      if (event.type === "reasoning") reasoning += event.delta;
-      if (event.type === "lifecycle" && event.status !== "running") finalStatus = event.status;
-      const sequence = "sequence" in event && typeof event.sequence === "number" ? event.sequence : undefined;
-      updateThread(threadId, (thread) => ({
-        ...thread,
-        status: event.type === "lifecycle" && event.status === "failed" ? "error" : event.type === "lifecycle" && event.status !== "running" ? "idle" : thread.status,
-        messages: thread.messages.map((message) => {
-          if (message.id !== assistantId) return message;
-          const cursor = sequence === undefined ? message.eventCursor : Math.max(message.eventCursor ?? 0, sequence);
-          if (event.type === "text") return { ...message, content: text, eventCursor: cursor };
-          if (event.type === "reasoning") return { ...message, reasoning, eventCursor: cursor };
-          if (event.type === "lifecycle") return {
-            ...message,
-            turnId: event.turnId,
-            turnStatus: event.status,
-            startedAt: event.status === "running" ? event.at : message.startedAt,
-            completedAt: event.status === "running" ? undefined : event.at,
-            eventCursor: cursor,
-          };
-          const tools = message.tools ?? [];
-          const index = tools.findIndex((tool) => tool.id === event.id);
-          return { ...message, eventCursor: cursor, tools: index < 0 ? [...tools, event] : tools.map((tool, i) => i === index ? { ...tool, ...event } : tool) };
-        }),
-        updatedAt: Date.now(),
-      }));
-    }
-    if (streamError) throw new Error(streamError);
-    return finalStatus;
-  }, [updateThread]);
-
-  useEffect(() => {
-    if (!threadsHydrated) return;
-    for (const thread of threads) {
-      const message = [...thread.messages].reverse().find((item) => item.turnStatus === "running" && item.turnId);
-      if (!message?.turnId || reconnectingTurnsRef.current.has(message.turnId) || turnControllersRef.current.has(thread.id)) continue;
-      reconnectingTurnsRef.current.add(message.turnId);
-      const controller = new AbortController();
-      turnControllersRef.current.set(thread.id, controller);
-      const after = message.eventCursor ?? 0;
-      void fetch(`/api/turns/${message.turnId}/stream?after=${after}`, { signal: controller.signal })
-        .then((response) => consumeTurn(response, thread.id, message.id, { text: message.content, reasoning: message.reasoning }))
-        .catch((error: Error) => {
-          if (controller.signal.aborted) return;
-          updateThread(thread.id, (current) => ({
-            ...current,
-            status: "error",
-            messages: current.messages.map((item) => item.id === message.id ? { ...item, turnStatus: "failed", completedAt: Date.now(), content: item.content || `Error: ${error.message}` } : item),
-            updatedAt: Date.now(),
-          }));
-        })
-        .finally(() => {
-          reconnectingTurnsRef.current.delete(message.turnId!);
-          if (turnControllersRef.current.get(thread.id) === controller) turnControllersRef.current.delete(thread.id);
-        });
-    }
-  }, [consumeTurn, threads, threadsHydrated, updateThread]);
+    return "New session";
+  }, [agent.data.messages]);
 
   async function send() {
     const prompt = input.trim();
-    if (!prompt || !active || active.status === "working") return;
-    const threadId = active.id;
-    const turnId = crypto.randomUUID();
-    const user: Message = { id: crypto.randomUUID(), role: "user", content: prompt };
-    const assistant: Message = { id: crypto.randomUUID(), role: "assistant", content: "", turnId, turnStatus: "running", startedAt: Date.now() };
-    const history = [...active.messages, user];
+    if (!prompt || busy || !workspace) return;
     setInput("");
-    const runningThread: Thread = {
-      ...active,
-      title: active.messages.length ? active.title : prompt.slice(0, 48),
-      messages: [...history, assistant],
-      status: "working",
-      updatedAt: Date.now(),
-    };
-    updateThread(threadId, () => runningThread);
-    const controller = new AbortController();
-    turnControllersRef.current.set(threadId, controller);
-    try {
-      const persisted = await fetch(`/api/threads/${threadId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ thread: runningThread }),
-        signal: controller.signal,
-      });
-      if (!persisted.ok) {
-        const body = await persisted.json().catch(() => null);
-        throw new Error(body?.error ?? "Could not persist the turn before starting.");
-      }
-      const response = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "auto",
-          threadId,
-          turnId,
-          permissionMode,
-          messages: history.map(({ role, content }) => ({ role, content })),
-        }),
-        signal: controller.signal,
-      });
-      const finalStatus = await consumeTurn(response, threadId, assistant.id);
-      if (!finalStatus) throw new Error("Turn stream ended without a completion event.");
-      if (panel?.kind === "changes") void openPanel({ kind: "changes" });
-    } catch (error) {
-      let failure = error;
-      const stopped = controller.signal.aborted;
-      if (!stopped) {
-        try {
-          const replay = await fetch(`/api/turns/${turnId}/stream`, { signal: controller.signal });
-          const finalStatus = await consumeTurn(replay, threadId, assistant.id);
-          if (finalStatus) return;
-        } catch (reconnectError) {
-          failure = reconnectError;
-        }
-      }
-      updateThread(threadId, (thread) => ({
-        ...thread,
-        status: stopped ? "idle" : "error",
-        messages: thread.messages.map((message) => message.id === assistant.id
-          ? {
-              ...message,
-              content: message.content || (stopped ? "Stopped." : `Error: ${failure instanceof Error ? failure.message : "Eve failed."}`),
-              turnStatus: stopped ? "stopped" : "failed",
-              completedAt: Date.now(),
-            }
-          : message),
-        updatedAt: Date.now(),
-      }));
-    } finally {
-      if (turnControllersRef.current.get(threadId) === controller) turnControllersRef.current.delete(threadId);
-    }
+    await agent.send(prompt).catch(() => undefined);
+    if (panel?.kind === "changes") void openPanel({ kind: "changes" });
   }
 
-  const groupedFiles = useMemo(() => workspace?.files ?? [], [workspace]);
-  const changesByPath = useMemo(() => new Map(workspaceChanges.map((change) => [change.path, change])), [workspaceChanges]);
+  async function answerRequest(request: EveMessageInputRequest, optionId?: string) {
+    if (optionId) {
+      await agent.respond([{ requestId: request.requestId, optionId }]).catch(() => undefined);
+      return;
+    }
+    const text = window.prompt(request.prompt)?.trim();
+    if (text) await agent.respond([{ requestId: request.requestId, text }]).catch(() => undefined);
+  }
+
+  const groupedFiles = workspace?.files ?? [];
+  const changesByPath = useMemo(
+    () => new Map(workspaceChanges.map((change) => [change.path, change])),
+    [workspaceChanges],
+  );
 
   if (workspaceError) {
     return (
@@ -397,7 +229,7 @@ export function CodeWorkspace() {
           <span className="brand-mark">E</span>
           <p className="eyebrow">Evecode setup</p>
           <h1>Workspace unavailable</h1>
-          <p>Evecode uses <code>~/.evetools/code</code> by default. Set <code>EVECODE_WORKSPACE_ROOT</code> to use another directory.</p>
+          <p>Launch Evecode with a readable and writable workspace directory.</p>
           <p className="error-text">{workspaceError}</p>
         </div>
       </main>
@@ -405,7 +237,7 @@ export function CodeWorkspace() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${panel ? "panel-open" : ""}`}>
       <aside className={`sidebar ${sidebarOpen ? "" : "sidebar-collapsed"}`}>
         <div className="sidebar-header">
           <span className="brand-mark">E</span>
@@ -413,56 +245,60 @@ export function CodeWorkspace() {
           <button className="icon-button push-right" onClick={() => setSidebarOpen((value) => !value)} aria-label="Toggle sidebar">{sidebarOpen ? "‹" : "›"}</button>
         </div>
         {sidebarOpen && <>
-          <button className="new-thread" onClick={createThread}><span>＋</span> New thread</button>
+          <button className="new-thread" disabled={busy} onClick={onNewSession}><span>＋</span> New session</button>
           <div className="project-heading"><span className="status-dot" />{workspace?.name ?? "Loading workspace…"}</div>
           <div className="thread-list">
-            {threads.map((thread) => (
-              <div className={`thread-row ${thread.id === activeId ? "active" : ""}`} key={thread.id}>
-                <button onClick={() => setActiveId(thread.id)}>
-                  <span className={`thread-status ${thread.status}`} />
-                  <span><strong>{thread.title}</strong><small>{new Date(thread.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small></span>
-                </button>
-                {thread.status === "working"
-                  ? <button className="delete-thread stop-thread" onClick={() => stopThread(thread.id)} aria-label={`Stop ${thread.title}`}>■</button>
-                  : <button className="delete-thread" onClick={() => removeThread(thread.id)} aria-label="Delete thread">×</button>}
+            <div className="thread-row active">
+              <div className="session-row">
+                <span className={`thread-status ${busy ? "working" : agent.status === "error" ? "error" : ""}`} />
+                <span><strong>{title}</strong><small>Durable Eve session</small></span>
               </div>
-            ))}
+            </div>
           </div>
-          <div className="sidebar-footer"><span>Local workspace</span><span className={workingCount ? "working-summary" : "online"}>{workingCount ? `● ${workingCount} working` : "● Eve ready"}</span></div>
+          <div className="sidebar-footer"><span>Shared core</span><span className={busy ? "working-summary" : "online"}>{busy ? "● Working" : "● Eve ready"}</span></div>
         </>}
       </aside>
 
       <section className="conversation-column">
         <header className="topbar">
-          <div><small>{workspace?.name ?? "Workspace"}</small><strong>{active?.title ?? "New thread"}</strong></div>
+          <div><small>{workspace?.name ?? "Workspace"}</small><strong>{title}</strong></div>
           <button className={`tab-button ${panel?.kind === "changes" ? "selected" : ""}`} onClick={() => void openPanel({ kind: "changes" })}>Changes</button>
         </header>
         <div className="timeline" ref={timelineRef}>
-          {!active?.messages.length ? (
-            <div className="empty-thread"><span className="brand-mark large">E</span><p className="eyebrow">{workspace?.name}</p><h1>What should we work on?</h1><p>Ask Eve to inspect, explain, change, or validate this project.</p></div>
-          ) : active.messages.map((message) => <MessageView key={message.id} message={message} />)}
+          {!agent.data.messages.length ? (
+            <div className="empty-thread"><span className="brand-mark large">E</span><p className="eyebrow">{workspace?.name}</p><h1>What should we work on?</h1><p>The web and terminal interfaces run the same Evecode agent.</p></div>
+          ) : agent.data.messages.map((message) => <MessageView key={message.id} message={message} />)}
         </div>
         <div className="composer-wrap">
-          {threadStorageError && <div className="approval-error">Thread persistence: {threadStorageError}<button onClick={() => setThreadStorageError("")}>×</button></div>}
-          {approvalError && <div className="approval-error">{approvalError}<button onClick={() => setApprovalError("")}>×</button></div>}
-          {approvals.map((approval) => (
-            <div className="approval-card" key={approval.id}>
-              <div><span className="approval-kind">Approval required</span><strong>{approval.title}</strong><code>{approval.detail}</code></div>
-              <div className="approval-actions"><button onClick={() => void decideApproval(approval.id, false)}>Deny</button><button className="approve" onClick={() => void decideApproval(approval.id, true)}>Approve</button></div>
+          {(initialConversation.restoreError || agent.error) && <div className="approval-error"><span>{initialConversation.restoreError ?? agent.error?.message}</span></div>}
+          {pendingRequests.map(({ part, request }) => (
+            <div className="approval-card" key={request.requestId}>
+              <div>
+                <span className="approval-kind">{request.kind === "tool-approval" ? "Approval required" : "Input required"}</span>
+                <strong>{request.prompt}</strong>
+                <code>{formatUnknown(part.input)}</code>
+              </div>
+              <div className="approval-actions">
+                {request.options?.map((option) => (
+                  <button className={option.style === "primary" ? "approve" : ""} key={option.id} onClick={() => void answerRequest(request, option.id)}>{option.label}</button>
+                ))}
+                {request.allowFreeform && <button onClick={() => void answerRequest(request)}>Answer…</button>}
+              </div>
             </div>
           ))}
           <div className="composer">
             <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="Ask Eve to work on this codebase…" rows={3} />
             <div className="composer-actions">
               <span>{workspace?.root ?? "Connecting…"}</span>
-              <label className="permission-mode" title="Ask requires approval before writes and commands">
-                <span>Permissions</span>
-                <select value={permissionMode} onChange={(event) => setPermissionMode(event.target.value as PermissionMode)} disabled={active?.status === "working"}>
-                  <option value="ask">Ask</option>
-                  <option value="trusted">Trusted</option>
+              <label className="model-picker" title="OpenRouter model">
+                <span>OpenRouter</span>
+                <select value={model} onChange={(event) => { setModel(event.target.value); localStorage.setItem(MODEL_KEY, event.target.value); }} disabled={busy}>
+                  {models.map((item) => <option key={item.id} title={item.description} value={item.id}>{item.displayName}</option>)}
                 </select>
               </label>
-              {active?.status === "working" ? <button className="send-button stop" onClick={() => stopThread(active.id)} aria-label="Stop active turn">■</button> : <button className="send-button" disabled={!input.trim() || !workspace} onClick={() => void send()}>↑</button>}
+              {busy
+                ? <button className="send-button stop" onClick={() => void agent.cancel()} aria-label="Stop active turn">■</button>
+                : <button className="send-button" disabled={!input.trim() || !workspace} onClick={() => void send()}>↑</button>}
             </div>
           </div>
         </div>
@@ -483,23 +319,40 @@ export function CodeWorkspace() {
   );
 }
 
-function turnStatusLabel(status: EveTurnStatus, startedAt?: number, completedAt?: number) {
-  if (status === "running") return "Working";
-  const duration = startedAt && completedAt ? ` · ${Math.max(0, (completedAt - startedAt) / 1000).toFixed(1)}s` : "";
-  return `${status[0].toUpperCase()}${status.slice(1)}${duration}`;
+function MessageView({ message }: { message: EveMessage }) {
+  return (
+    <article className={`message ${message.role}`}>
+      <div className="message-label">{message.role === "user" ? "You" : "Eve"}</div>
+      {message.parts.map((part, index) => <MessagePart key={`${message.id}:${index}`} part={part} />)}
+      {message.metadata?.status === "streaming" && <span className="streaming-dots">•••</span>}
+    </article>
+  );
 }
 
-function MessageView({ message }: { message: Message }) {
-  return <article className={`message ${message.role}`}>
-    <div className="message-label">{message.role === "user" ? "You" : "Eve"}</div>
-    {message.role === "assistant" && message.turnStatus && <div className={`turn-status ${message.turnStatus}`}>{turnStatusLabel(message.turnStatus, message.startedAt, message.completedAt)}</div>}
-    {message.reasoning && <details><summary>Reasoning</summary><p>{message.reasoning}</p></details>}
-    {message.tools?.map((tool) => {
-      const skillName = tool.name === "load_skill" && tool.input && typeof tool.input === "object" && "name" in tool.input
-        ? String(tool.input.name)
-        : null;
-      return <div className="tool-row" key={tool.id}><span className={`tool-state ${tool.status}`} /> <code>{skillName ? `skill: ${skillName}` : tool.name}</code><span>{tool.status}</span></div>;
-    })}
-    <div className="message-content">{message.content || (message.role === "assistant" ? <span className="streaming-dots">•••</span> : null)}</div>
-  </article>;
+function MessagePart({ part }: { part: EveMessagePart }) {
+  if (part.type === "text") return <div className="message-content">{part.text}</div>;
+  if (part.type === "reasoning") return <details><summary>Reasoning</summary><p className="message-content">{part.text}</p></details>;
+  if (part.type === "dynamic-tool") return <ToolPart part={part} />;
+  if (part.type === "file") return <div className="tool-row"><code>{part.filename ?? "Attachment"}</code><span>{part.mediaType}</span></div>;
+  if (part.type === "authorization") {
+    return <div className="approval-card"><div><span className="approval-kind">Authorization</span><strong>{part.displayName}</strong><code>{part.description}</code></div>{part.state === "required" && part.authorization?.url ? <a href={part.authorization.url} rel="noreferrer" target="_blank">Sign in</a> : null}</div>;
+  }
+  return null;
+}
+
+function ToolPart({ part }: { part: EveDynamicToolPart }) {
+  const failed = part.state === "output-error" || part.state === "output-denied";
+  const complete = part.state === "output-available";
+  const name = part.toolMetadata?.eve?.name ?? part.toolName;
+  return <div className="tool-row"><span className={`tool-state ${failed ? "error" : complete ? "complete" : ""}`} /><code>{name}</code><span>{failed ? "error" : complete ? "complete" : "running"}</span></div>;
+}
+
+function formatUnknown(value: unknown): string {
+  if (value === undefined) return "";
+  try {
+    const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    return text.length > 2_000 ? `${text.slice(0, 2_000)}…` : text;
+  } catch {
+    return String(value);
+  }
 }

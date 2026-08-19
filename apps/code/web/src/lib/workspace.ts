@@ -1,20 +1,28 @@
 import { execFile } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const IGNORED = new Set([".git", ".next", ".turbo", "node_modules", "dist", "build"]);
+const IGNORED = new Set([
+  ".eve",
+  ".expo",
+  ".git",
+  ".next",
+  ".output",
+  ".turbo",
+  "build",
+  "dist",
+  "node_modules",
+]);
 
 export function workspaceRoot(): string {
-  const configured = process.env.EVECODE_WORKSPACE_ROOT;
-  if (configured) return path.resolve(configured);
-
-  const root = path.join(homedir(), ".evetools", "code");
-  mkdirSync(root, { recursive: true });
-  return root;
+  const configured = process.env.EVECODE_WORKSPACE_ROOT?.trim();
+  if (!configured) {
+    throw new Error("EVECODE_WORKSPACE_ROOT is required. Launch Evecode with `evecode launch web [workspace]`.");
+  }
+  return realpathSync(path.resolve(configured));
 }
 
 export function resolveWorkspacePath(relativePath: string): string {
@@ -68,9 +76,9 @@ export async function writeWorkspaceFile(relativePath: string, content: string):
   await fs.writeFile(destination, content, "utf8");
 }
 
-export async function runWorkspaceCommand(command: string): Promise<{ output: string; exitCode: number }> {
+async function runGit(args: string[]): Promise<{ output: string; exitCode: number }> {
   try {
-    const { stdout, stderr } = await execFileAsync("/bin/sh", ["-lc", command], {
+    const { stdout, stderr } = await execFileAsync("git", args, {
       cwd: workspaceRoot(),
       timeout: 120_000,
       maxBuffer: 1_000_000,
@@ -115,7 +123,7 @@ export async function searchWorkspaceFiles(query: string, limit = 100): Promise<
 }
 
 export async function workspaceStatus(): Promise<WorkspaceChange[]> {
-  const result = await runWorkspaceCommand("git status --porcelain=v1 -z --untracked-files=all");
+  const result = await runGit(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   if (result.exitCode !== 0) return [];
   const entries = result.output.split("\0");
   const changes: WorkspaceChange[] = [];
@@ -129,17 +137,17 @@ export async function workspaceStatus(): Promise<WorkspaceChange[]> {
   return changes;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
 export async function workspaceDiff(relativePath?: string): Promise<string> {
   if (relativePath) {
     resolveWorkspacePath(relativePath);
-    const result = await runWorkspaceCommand(`git diff --no-ext-diff -- ${shellQuote(relativePath)}`);
+    const result = await runGit(["diff", "--no-ext-diff", "--", relativePath]);
     if (result.exitCode !== 0 || !result.output.trim()) return `No uncommitted changes for ${relativePath}.`;
     return result.output;
   }
-  const result = await runWorkspaceCommand("git diff --no-ext-diff --stat && git diff --no-ext-diff -- . ':(exclude)pnpm-lock.yaml'");
-  return result.exitCode === 0 ? (result.output || "No uncommitted changes.") : "No uncommitted changes.";
+  const [stat, diff] = await Promise.all([
+    runGit(["diff", "--no-ext-diff", "--stat"]),
+    runGit(["diff", "--no-ext-diff", "--", ".", ":(exclude)pnpm-lock.yaml"]),
+  ]);
+  if (stat.exitCode !== 0 || diff.exitCode !== 0) return "No uncommitted changes.";
+  return `${stat.output}${diff.output}` || "No uncommitted changes.";
 }

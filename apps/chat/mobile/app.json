@@ -8,6 +8,8 @@
     "userInterfaceStyle": "automatic",
     "scheme": "eve",
     "plugins": [
+      "expo-secure-store",
+      "@clerk/expo",
       [
         "expo-image-picker",
         {
@@ -22,6 +24,7 @@
       "bundleIdentifier": "com.evechat.mobile"
     },
     "android": {
+      "package": "com.evechat.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

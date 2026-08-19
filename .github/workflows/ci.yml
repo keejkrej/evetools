@@ -12,17 +12,33 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 11.18.0
+          version: 11.21.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:ui-parity
-      - run: pnpm --filter @evetools/chat-shell typecheck
-      - run: pnpm --filter @evetools/evebind typecheck
-      - run: pnpm --filter @evetools/evebind test
+      - run: pnpm --filter @evetools/chat-shell --filter @evetools/openrouter --filter @evetools/code --filter @evetools/chat-mobile --filter @evetools/evebind typecheck
+      - run: pnpm --filter @evetools/chat-mobile test
+      - run: pnpm --filter @evetools/chat-mobile export:android
+      - run: pnpm --filter @evetools/openrouter --filter @evetools/code --filter @evetools/evebind test
       - run: pnpm --filter @evetools/chat test
       - run: pnpm --filter @evetools/draw test
       - run: pnpm --filter @evetools/chat build
       - run: pnpm --filter @evetools/draw build
+      - run: pnpm --filter @evetools/code build
+
+  code-tui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @evetools/code-tui check

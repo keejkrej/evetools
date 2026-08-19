@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/owner-auth", () => ({
+  authorizeOwner: vi.fn(async () => null),
+}));
+
 import { POST } from "./route";
 
-const live = process.env.CURSOR_INTEGRATION === "1" && !!process.env.CURSOR_API_KEY;
+const live = process.env.OPENROUTER_INTEGRATION === "1" && !!process.env.OPENROUTER_API_KEY;
 
-describe.skipIf(!live)("Cursor chat integration", () => {
+describe.skipIf(!live)("OpenRouter chat integration", () => {
   it(
     "streams a real model response through the public event contract",
     async () => {
@@ -15,7 +20,7 @@ describe.skipIf(!live)("Cursor chat integration", () => {
             "x-forwarded-for": `integration-${Date.now()}`,
           },
           body: JSON.stringify({
-            model: "auto",
+            model: "openai/gpt-5.6-luna",
             messages: [
               {
                 role: "user",

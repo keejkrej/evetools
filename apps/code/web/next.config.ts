@@ -1,12 +1,9 @@
-import type { NextConfig } from "next";
+import { withEve } from "eve/next";
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   output: "standalone",
-  serverExternalPackages: [
-    "electron",
-    "@cursor/sdk",
-    "ai-sdk-provider-cursor-sdk",
-  ],
-};
+} as const;
 
-export default nextConfig;
+export default withEve(nextConfig, {
+  eveRoot: "../tui",
+});

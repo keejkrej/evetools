@@ -1,9 +1,23 @@
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
-import { cursor } from "ai-sdk-provider-cursor-sdk";
+import {
+  CHAT_OPENROUTER_MODEL,
+  isCuratedOpenRouterModel,
+  openRouterModelSupportsImages,
+} from "@evetools/openrouter";
+import {
+  hasOpenRouterApiKey,
+  openRouterModel,
+} from "@evetools/openrouter/server";
+import { type ExportDrawingOutcome } from "@evetools/drawing";
 import { authorizeOwner } from "@/lib/owner-auth";
 import { z } from "zod";
-import { drawOnBoardInputSchema } from "@/lib/board-schema";
+import {
+  DRAWING_TOOL_DESCRIPTIONS,
+  applyDrawingPatchToolInputSchema,
+  exportDrawingToolInputSchema,
+  inspectDrawingToolInputSchema,
+} from "@/lib/drawing-tools";
+import { createPenpotDrawingClientFromEnv } from "@/lib/penpot-drawing-client";
 import {
   acquireRequestSlot,
   hasAllowedOrigin,
@@ -12,80 +26,57 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const OLLAMA_REASONING_MARKER = "[[eve:ollama-reasoning]]";
+const PENPOT_SYSTEM_PROMPT = `You are Eve, a thoughtful and accurate general-purpose assistant connected to the user's current Penpot workspace. Answer directly and use Markdown when useful.
 
-/**
- * Ollama's OpenAI-compatible chat endpoint emits thinking in `delta.reasoning`
- * (and older model runners use `reasoning_content` or `thinking`). The OpenAI
- * AI SDK adapter intentionally only maps the standard `content` field, so
- * expose those deltas as marked text for the route's event adapter below.
- */
-async function ollamaReasoningFetch(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) {
-  const response = await fetch(input, init);
-  if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) {
-    return response;
+When the user asks you to draw, diagram, sketch, map, wireframe, or edit the document:
+- Call inspect_drawing first and treat its revision as opaque.
+- Apply changes with apply_drawing_patch using that exact baseRevision and a stable, unique idempotencyKey. Use clientId references for shapes created earlier in the same patch.
+- Keep layouts readable, align related shapes, and leave at least 48 pixels between neighboring shapes.
+- Check status and structured faults. After a revision conflict, inspect again before retrying. Never report a partial or failed patch as complete.
+- Use export_drawing only when the user asks for the native Penpot file.
+
+Briefly summarize successful edits. Never claim to have changed the drawing unless Penpot returned an ok or partial receipt that confirms those changes.`;
+
+const NO_PENPOT_SYSTEM_PROMPT =
+  "You are Eve, a thoughtful and accurate general-purpose assistant. Answer directly and use Markdown when useful. The Penpot drawing workspace is not connected for this request, so do not claim to inspect or edit it. If the user asks for a drawing change, explain that the Penpot MCP connection must be configured.";
+
+function exportReceiptForModel(outcome: ExportDrawingOutcome) {
+  if (outcome.status === "error") {
+    return {
+      receiptType: "evedraw.export-delivery/v1",
+      status: outcome.status,
+      faults: outcome.faults,
+    };
   }
-
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  let buffered = "";
-  const rewriteLine = (line: string) => {
-    if (!line.startsWith("data:")) return `${line}\n`;
-    try {
-      const event = JSON.parse(line.slice(5).trim()) as {
-        choices?: Array<{
-          delta?: {
-            reasoning?: string;
-            reasoning_content?: string;
-            thinking?: string;
-          };
-        }>;
-      };
-      const reasoning = event.choices
-        ?.map(
-          (choice) =>
-            choice.delta?.reasoning ??
-            choice.delta?.reasoning_content ??
-            choice.delta?.thinking,
-        )
-        .filter((value): value is string => Boolean(value))
-        .join("");
-      return reasoning
-        ? `data: ${JSON.stringify({
-            ...event,
-            choices: [{ delta: { content: `${OLLAMA_REASONING_MARKER}${reasoning}` }, index: 0 }],
-          })}\n\n${line}\n`
-        : `${line}\n`;
-    } catch {
-      return `${line}\n`;
-    }
+  const { data: encodedData, ...artifact } = outcome.data.artifact;
+  return {
+    receiptType: "evedraw.export-delivery/v1",
+    status: outcome.status,
+    data: {
+      ...outcome.data,
+      artifact: {
+        ...artifact,
+        encoding: encodedData.encoding,
+        delivery: "browser-download",
+      },
+    },
+    ...(outcome.status === "partial" ? { faults: outcome.faults } : {}),
   };
-  const stream = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      buffered += decoder.decode(chunk, { stream: true });
-      const lines = buffered.split("\n");
-      buffered = lines.pop() ?? "";
-      for (const line of lines) controller.enqueue(encoder.encode(rewriteLine(line.replace(/\r$/, ""))));
-    },
-    flush(controller) {
-      buffered += decoder.decode();
-      if (buffered) controller.enqueue(encoder.encode(rewriteLine(buffered.replace(/\r$/, ""))));
-    },
-  });
-  return new Response(response.body.pipeThrough(stream), response);
 }
 
-const ollama = createOpenAI({
-  apiKey: process.env.OLLAMA_API_KEY,
-  baseURL: "https://ollama.com/v1",
-  fetch: ollamaReasoningFetch,
-});
+type ExportArtifact = Extract<ExportDrawingOutcome, { status: "ok" | "partial" }>[
+  "data"
+]["artifact"];
+
+function toolResultActivityStatus(output: unknown): "complete" | "error" {
+  if (!output || typeof output !== "object" || !("status" in output)) {
+    return "complete";
+  }
+  const status = (output as { status?: unknown }).status;
+  return status === "error" || status === "partial" ? "error" : "complete";
+}
 
 const requestSchema = z.object({
-  provider: z.enum(["cursor", "ollama"]).default("cursor"),
   messages: z
     .array(
       z.object({
@@ -116,8 +107,9 @@ const requestSchema = z.object({
     .string()
     .min(1)
     .max(100)
-    .regex(/^[a-zA-Z0-9._:/-]+$/)
-    .default("auto"),
+    .regex(/^~?[a-zA-Z0-9._-]+\/[a-zA-Z0-9._:/-]+$/)
+    .refine(isCuratedOpenRouterModel)
+    .default(CHAT_OPENROUTER_MODEL),
 });
 
 export async function POST(request: Request) {
@@ -131,17 +123,9 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Invalid chat request." }, { status: 400 });
   }
-  if (
-    (parsed.data.provider === "cursor" && !process.env.CURSOR_API_KEY) ||
-    (parsed.data.provider === "ollama" && !process.env.OLLAMA_API_KEY)
-  ) {
+  if (!hasOpenRouterApiKey()) {
     return Response.json(
-      {
-        error:
-          parsed.data.provider === "ollama"
-            ? "OLLAMA_API_KEY is not configured."
-            : "CURSOR_API_KEY is not configured.",
-      },
+      { error: "OPENROUTER_API_KEY is not configured." },
       { status: 503 },
     );
   }
@@ -158,6 +142,26 @@ export async function POST(request: Request) {
     return Response.json(
       { error: "Image attachments are too large." },
       { status: 413 },
+    );
+  }
+  if (
+    attachmentBytes > 0 &&
+    !openRouterModelSupportsImages(parsed.data.model)
+  ) {
+    return Response.json(
+      { error: "The selected model does not support image attachments." },
+      { status: 400 },
+    );
+  }
+
+  const slot = acquireRequestSlot(request);
+  if (!slot.allowed) {
+    return Response.json(
+      { error: "Too many requests. Please try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(slot.retryAfter) },
+      },
     );
   }
 
@@ -179,53 +183,69 @@ export async function POST(request: Request) {
     };
   });
 
-  const result = streamText({
-    model:
-      parsed.data.provider === "ollama"
-        ? ollama.chat(parsed.data.model)
-        : cursor(parsed.data.model, {
-            createNewAgentPerCall: true,
-            mode: "plan",
-            promptHistoryMode: "flatten",
-            systemMessageMode: "prefix",
-            cloud: {
-              env: { type: "cloud" },
-              repos: [],
-              autoCreatePR: false,
-              skipReviewerRequest: true,
-            },
-          }),
-    system:
-      "You are Eve, a thoughtful and accurate general-purpose assistant with an Excalidraw canvas. Answer directly and use Markdown when useful. When a user asks you to draw, diagram, sketch, map, or wireframe something, use draw_on_board. Use stable unique ids, bind arrows with start/end ids, keep layouts readable with at least 48px gaps, and briefly summarize what you placed after the tool succeeds. Never claim to have done something you did not do.",
-    messages,
-    tools: {
-      draw_on_board: tool({
-        description: "Draw or update shapes on the user's Excalidraw canvas. Prefer replace for a complete new diagram and append for additions.",
-        inputSchema: drawOnBoardInputSchema,
-        execute: async ({ mode, elements }) => ({ status: "applied_by_client", mode, elementCount: elements.length }),
-      }),
-      suggest_board_layout: tool({
-        description: "Develop a concise layout plan before drawing a complex flowchart, architecture, sequence, mind map, or wireframe.",
-        inputSchema: z.object({ goal: z.string().min(1), style: z.enum(["flowchart", "architecture", "sequence", "mindmap", "wireframe"]) }),
-        execute: async ({ goal, style }) => ({ goal, style, guidance: "Keep labels short, align related nodes, leave at least 48px between shapes, and label important connectors." }),
-      }),
-    },
-    stopWhen: stepCountIs(5),
-    providerOptions:
-      parsed.data.provider === "ollama"
-        ? { openai: { forceReasoning: true, reasoningEffort: "medium" } }
-        : undefined,
-    abortSignal: request.signal,
-  });
-
-  const slot = acquireRequestSlot(request);
-  if (!slot.allowed) {
+  let drawingClient;
+  try {
+    drawingClient = createPenpotDrawingClientFromEnv();
+  } catch {
+    slot.release();
     return Response.json(
-      { error: "Too many requests. Please try again later." },
-      {
-        status: 429,
-        headers: { "Retry-After": String(slot.retryAfter) },
-      },
+      { error: "PENPOT_MCP_URL is invalid." },
+      { status: 503 },
+    );
+  }
+
+  const exportArtifacts = new Map<string, ExportArtifact>();
+
+  const drawingTools = drawingClient
+    ? {
+        inspect_drawing: tool({
+          description:
+            DRAWING_TOOL_DESCRIPTIONS.inspect,
+          inputSchema: inspectDrawingToolInputSchema,
+          execute: (input) =>
+            drawingClient.inspect(input, { signal: request.signal }),
+        }),
+        apply_drawing_patch: tool({
+          description:
+            DRAWING_TOOL_DESCRIPTIONS.apply,
+          inputSchema: applyDrawingPatchToolInputSchema,
+          execute: (input) =>
+            drawingClient.apply(input, { signal: request.signal }),
+        }),
+        export_drawing: tool({
+          description:
+            `${DRAWING_TOOL_DESCRIPTIONS.export} The model receives artifact metadata; the bounded MCP tool retains the archive payload.`,
+          inputSchema: exportDrawingToolInputSchema,
+          execute: async (input, { toolCallId }) => {
+            const outcome = await drawingClient.export(input, {
+              signal: request.signal,
+            });
+            if (outcome.status !== "error") {
+              exportArtifacts.set(toolCallId, outcome.data.artifact);
+            }
+            return exportReceiptForModel(outcome);
+          },
+        }),
+      }
+    : undefined;
+
+  const startStream = () =>
+    streamText({
+      model: openRouterModel(parsed.data.model),
+      system: drawingClient ? PENPOT_SYSTEM_PROMPT : NO_PENPOT_SYSTEM_PROMPT,
+      messages,
+      tools: drawingTools,
+      stopWhen: stepCountIs(8),
+      abortSignal: request.signal,
+    });
+  let result: ReturnType<typeof startStream>;
+  try {
+    result = startStream();
+  } catch {
+    slot.release();
+    return Response.json(
+      { error: "The model stream could not be started." },
+      { status: 500 },
     );
   }
 
@@ -238,14 +258,7 @@ export async function POST(request: Request) {
       try {
         for await (const part of result.fullStream) {
           if (part.type === "text-delta") {
-            if (part.text.startsWith(OLLAMA_REASONING_MARKER)) {
-              send({
-                type: "reasoning",
-                delta: part.text.slice(OLLAMA_REASONING_MARKER.length),
-              });
-            } else {
-              send({ type: "text", delta: part.text });
-            }
+            send({ type: "text", delta: part.text });
           } else if (part.type === "reasoning-delta") {
             send({ type: "reasoning", delta: part.text });
           } else if (
@@ -266,8 +279,20 @@ export async function POST(request: Request) {
               id: part.toolCallId,
               name: part.toolName,
               title: part.title,
-              status: "complete",
+              status: toolResultActivityStatus(part.output),
             });
+            const artifact = exportArtifacts.get(part.toolCallId);
+            if (artifact) {
+              exportArtifacts.delete(part.toolCallId);
+              send({
+                type: "artifact",
+                id: part.toolCallId,
+                fileName: artifact.fileName,
+                mediaType: artifact.mimeType,
+                encoding: artifact.data.encoding,
+                data: artifact.data.data,
+              });
+            }
           } else if (part.type === "tool-error") {
             send({
               type: "tool",
@@ -285,6 +310,7 @@ export async function POST(request: Request) {
           send({ type: "error", message: "The model stream failed." });
         }
       } finally {
+        await drawingClient?.close().catch(() => undefined);
         slot.release();
         controller.close();
       }

@@ -33,7 +33,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans h-dvh overflow-hidden antialiased`}>
-        <ClerkProvider publishableKey={publishableKey} signInUrl="/login">
+        <ClerkProvider
+          publishableKey={publishableKey}
+          signInUrl="/evedraw/login"
+        >
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
             <TooltipProvider>
               {children}

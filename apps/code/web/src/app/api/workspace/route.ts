@@ -1,9 +1,12 @@
 import path from "node:path";
+import { enforceLocalRequest } from "@/lib/request-guard";
 import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, workspaceDiff, workspaceRoot, workspaceStatus } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
+  const forbidden = enforceLocalRequest(request);
+  if (forbidden) return forbidden;
   try {
     const url = new URL(request.url);
     const file = url.searchParams.get("file");

@@ -3,10 +3,35 @@ packages:
   - packages/*
 
 allowBuilds:
-  electron: true
-  electron-winstaller: true
+  browser-tabs-lock: false
+  bufferutil: false
+  core-js: false
+  esbuild: true
+  "eve@git+https://github.com/keejkrej/eve.git": true
   sharp: true
   unrs-resolver: true
+  utf-8-validate: false
+
+minimumReleaseAgeExclude:
+  - '@clerk/clerk-js@6.29.1'
+  - '@clerk/expo@4.3.0'
+  - '@clerk/react@6.14.3'
+  - '@clerk/shared@4.29.1'
+  - '@expo/cli@57.0.15'
+  - '@expo/config-plugins@57.0.8'
+  - '@expo/prebuild-config@57.0.12'
+  - '@expo/router-server@57.0.6'
+  - babel-preset-expo@57.0.7
+  - expo-asset@57.0.11
+  - expo-auth-session@57.0.7
+  - expo-constants@57.0.11
+  - expo-file-system@57.0.3
+  - expo-image-picker@57.0.10
+  - expo-linking@57.0.6
+  - expo-modules-autolinking@57.0.10
+  - expo-modules-core@57.0.11
+  - expo-server@57.0.3
+  - expo@57.0.13
 
 overrides:
   "@react-native-async-storage/async-storage": 2.2.0

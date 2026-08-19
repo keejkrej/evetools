@@ -9,7 +9,7 @@ export default function UnauthorizedPage() {
         <p className="text-sm text-muted-foreground">
           This Eve instance is restricted to its owner.
         </p>
-        <SignOutButton redirectUrl="/login">
+        <SignOutButton redirectUrl="/evedraw/login">
           <Button>Sign out</Button>
         </SignOutButton>
       </div>

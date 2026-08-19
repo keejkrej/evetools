@@ -1,0 +1,26 @@
+{
+  "name": "@evetools/openrouter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/catalog.ts",
+    "./server": "./src/server.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "ai": "^7.0.65",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "ai": "^7.0.65"
+  }
+}

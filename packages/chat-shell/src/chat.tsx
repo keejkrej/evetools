@@ -4,7 +4,6 @@ import * as React from "react";
 import Image from "next/image";
 import {
   Anthropic,
-  Cursor,
   DeepSeek,
   Gemini,
   Meta,
@@ -12,12 +11,17 @@ import {
   Minimax,
   Mistral,
   Moonshot,
-  Ollama,
   OpenAI,
+  OpenRouter,
   Qwen,
-  Zhipu,
   ZAI,
 } from "@lobehub/icons";
+import {
+  CHAT_OPENROUTER_MODEL,
+  OPENROUTER_MODELS,
+  openRouterModelSupportsImages,
+  type OpenRouterModelOption,
+} from "@evetools/openrouter";
 import {
   Check,
   CheckCircle2,
@@ -126,6 +130,13 @@ type ToolActivity = {
   status: "running" | "complete" | "error";
   input?: unknown;
 };
+export type ChatArtifact = {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  encoding: "base64";
+  data: string;
+};
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -146,50 +157,49 @@ export type ChatShellExtension = {
   panel?: React.ReactNode;
   toolbar?: React.ReactNode;
   onToolEvent?: (event: ToolActivity) => void;
+  onArtifact?: (artifact: ChatArtifact) => void;
 };
 
 export type ChatShellProps = {
+  basePath?: string;
   exportFallback?: string;
   extension?: ChatShellExtension;
   storageNamespace?: string;
 };
-type Provider = "cursor" | "ollama";
-type ModelOption = { id: string; displayName: string; description?: string };
 type Health = {
   status?: string;
-  providers?: Record<Provider, boolean>;
+  providers?: { openrouter?: boolean };
 };
-const CURSOR_FALLBACK_MODELS: ModelOption[] = [
-  { id: "default", displayName: "Auto" },
-  { id: "composer-2.5", displayName: "Composer 2.5" },
-];
-const OLLAMA_FALLBACK_MODELS: ModelOption[] = [
-  { id: "gpt-oss:120b", displayName: "gpt-oss:120b" },
-];
-const fallbackModels = (provider: Provider) =>
-  provider === "ollama" ? OLLAMA_FALLBACK_MODELS : CURSOR_FALLBACK_MODELS;
 
 const MODEL_CATALOG_STALE_TIME = 5 * 60 * 1000;
 const fetchModelCatalog = async (url: string) => {
   const response = await fetch(url);
   if (!response.ok) throw new Error("Could not load models.");
-  return response.json() as Promise<{ models?: ModelOption[] }>;
+  return response.json() as Promise<{ models?: OpenRouterModelOption[] }>;
 };
 
 type ChatStreamEvent =
   | { type: "text"; delta: string }
   | { type: "reasoning"; delta: string }
   | ({ type: "tool" } & ToolActivity)
+  | ({ type: "artifact" } & ChatArtifact)
   | { type: "error"; message: string };
 
+const ChatBasePathContext = React.createContext("");
+
+function withBasePath(basePath: string, pathname: string) {
+  return `${basePath}${pathname}`;
+}
+
 function EveMark({ className }: { className?: string }) {
+  const basePath = React.useContext(ChatBasePathContext);
   return (
     <Image
       alt=""
       aria-hidden="true"
       className={`${className ?? ""} dark:invert`}
       height={102}
-      src="/eve-logo.svg"
+      src={withBasePath(basePath, "/eve-logo.svg")}
       width={102}
     />
   );
@@ -203,46 +213,37 @@ function EveAvatar() {
   );
 }
 
-function ModelProviderIcon({ provider, modelId }: { provider: Provider; modelId: string }) {
+function ModelProviderIcon({ modelId }: { modelId: string }) {
   const className = "size-5 shrink-0";
+  const normalizedId = modelId.startsWith("~") ? modelId.slice(1) : modelId;
 
-  if (provider === "ollama") {
-    if (modelId.startsWith("gpt-oss")) return <OpenAI className={className} />;
-    if (modelId.startsWith("minimax")) return <Minimax className={className} />;
-    if (modelId.startsWith("kimi-")) return <Moonshot className={className} />;
-    if (modelId.startsWith("glm-")) return <Zhipu className={className} />;
-    if (modelId.startsWith("gemma")) return <Gemini className={className} />;
-    if (modelId.startsWith("qwen")) return <Qwen className={className} />;
-    if (modelId.startsWith("deepseek")) return <DeepSeek className={className} />;
-    if (modelId.startsWith("llama")) return <Meta className={className} />;
-    if (modelId.startsWith("mistral") || modelId.startsWith("mixtral")) {
-      return <Mistral className={className} />;
-    }
-    return <OpenAI className={className} />;
-  }
-  if (modelId === "default" || modelId.startsWith("composer-")) {
-    return <Cursor className={className} />;
-  }
-  if (modelId.startsWith("claude-")) {
+  if (normalizedId.startsWith("anthropic/")) {
     return <Anthropic className={className} />;
   }
-  if (modelId.startsWith("gpt-")) {
+  if (normalizedId.startsWith("openai/")) {
     return <OpenAI className={className} />;
   }
-  if (modelId.startsWith("gemini-")) {
+  if (normalizedId.startsWith("google/")) {
     return <Gemini className={className} />;
   }
-  if (modelId.startsWith("grok-")) {
+  if (normalizedId.startsWith("x-ai/")) {
     return <Grok className={className} />;
   }
-  if (modelId.startsWith("kimi-")) {
+  if (normalizedId.startsWith("moonshotai/")) {
     return <Moonshot className={className} />;
   }
-  if (modelId.startsWith("glm-")) {
+  if (normalizedId.startsWith("z-ai/")) {
     return <ZAI className={className} />;
   }
+  if (normalizedId.startsWith("minimax/")) return <Minimax className={className} />;
+  if (normalizedId.startsWith("deepseek/")) return <DeepSeek className={className} />;
+  if (normalizedId.startsWith("meta-llama/")) return <Meta className={className} />;
+  if (normalizedId.startsWith("mistralai/")) return <Mistral className={className} />;
+  if (normalizedId.startsWith("qwen/")) return <Qwen className={className} />;
+  if (normalizedId.startsWith("xiaomi/")) return <OpenRouter className={className} />;
+  if (normalizedId.startsWith("nvidia/")) return <OpenRouter className={className} />;
 
-  return <Cursor className={className} />;
+  return <OpenRouter className={className} />;
 }
 
 function createConversation(): Conversation {
@@ -585,22 +586,18 @@ function Sidebar({
 }
 
 export function ChatShell({
+  basePath = "",
   exportFallback = "eve-chat",
   extension,
   storageNamespace = "eve",
 }: ChatShellProps = {}) {
   const STORAGE_KEY = `${storageNamespace}-conversations-v1`;
-  const PROVIDER_KEY = `${storageNamespace}-provider-v1`;
-  const modelKey = React.useCallback(
-    (provider: Provider) => `${storageNamespace}-model-${provider}-v1`,
-    [storageNamespace],
-  );
+  const MODEL_KEY = `${storageNamespace}-openrouter-model-v1`;
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [activeId, setActiveId] = React.useState("");
   const [input, setInput] = React.useState("");
   const [composerMultiline, setComposerMultiline] = React.useState(false);
-  const [provider, setProvider] = React.useState<Provider>("ollama");
-  const [model, setModel] = React.useState("gpt-oss:120b");
+  const [model, setModel] = React.useState(CHAT_OPENROUTER_MODEL);
   const [streaming, setStreaming] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState("");
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -625,11 +622,8 @@ export function ChatShell({
   const { signOut } = useClerk();
   const { resolvedTheme, setTheme } = useTheme();
   const [themeMounted, setThemeMounted] = React.useState(false);
-  const [availableProviders, setAvailableProviders] = React.useState<
-    Record<Provider, boolean> | null
-  >(null);
-  const { data: modelCatalog } = useSWR<{ models?: ModelOption[] }>(
-    `/api/models?provider=${provider}`,
+  const { data: modelCatalog } = useSWR<{ models?: OpenRouterModelOption[] }>(
+    withBasePath(basePath, "/api/models"),
     fetchModelCatalog,
     {
       dedupingInterval: MODEL_CATALOG_STALE_TIME,
@@ -639,7 +633,8 @@ export function ChatShell({
   );
   const models = modelCatalog?.models?.length
     ? modelCatalog.models
-    : fallbackModels(provider);
+    : OPENROUTER_MODELS;
+  const modelSupportsImages = openRouterModelSupportsImages(model);
 
   const active =
     conversations.find((conversation) => conversation.id === activeId) ??
@@ -647,13 +642,6 @@ export function ChatShell({
 
   React.useEffect(() => {
     queueMicrotask(() => setThemeMounted(true));
-  }, []);
-
-  React.useEffect(() => {
-    const saved = localStorage.getItem(PROVIDER_KEY);
-    if (saved === "cursor" || saved === "ollama") {
-      queueMicrotask(() => setProvider(saved));
-    }
   }, []);
 
   React.useEffect(() => {
@@ -681,24 +669,20 @@ export function ChatShell({
 
   React.useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/health", { cache: "no-store", signal: controller.signal })
+    fetch(withBasePath(basePath, "/api/health"), {
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then((response) => {
         if (!response.ok) throw new Error("Health check failed.");
         return response.json() as Promise<Health>;
       })
       .then((payload) => {
-        setAvailableProviders(payload.providers ?? null);
         setConfigurationStatus(
-          payload.status === "ready" ? "ready" : "missing",
+          payload.status === "ready" && payload.providers?.openrouter !== false
+            ? "ready"
+            : "missing",
         );
-        const enabled = (["ollama", "cursor"] as const).filter(
-          (item) => payload.providers?.[item] !== false,
-        );
-        if (enabled.length) {
-          setProvider((current) =>
-            payload.providers?.[current] === false ? enabled[0] : current,
-          );
-        }
       })
       .catch((error) => {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -706,18 +690,18 @@ export function ChatShell({
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [basePath]);
 
   React.useEffect(() => {
     queueMicrotask(() => {
-      const saved = localStorage.getItem(modelKey(provider));
+      const saved = localStorage.getItem(MODEL_KEY);
       if (saved && models.some((item) => item.id === saved)) {
         setModel(saved);
       } else if (!models.some((item) => item.id === model)) {
         setModel(models[0].id);
       }
     });
-  }, [model, models, provider]);
+  }, [MODEL_KEY, model, models]);
 
   React.useEffect(() => {
     if (!conversations.length) return;
@@ -840,9 +824,13 @@ export function ChatShell({
     if (configurationStatus !== "ready") {
       toast.error(
         configurationStatus === "missing"
-          ? "CURSOR_API_KEY is not configured."
+          ? "OPENROUTER_API_KEY is not configured."
           : "Eve is not connected to the server yet.",
       );
+      return;
+    }
+    if (messageAttachments.length && !modelSupportsImages) {
+      toast.error("Choose an image-capable model before sending attachments.");
       return;
     }
 
@@ -877,11 +865,10 @@ export function ChatShell({
     let receivedText = "";
     let receivedAny = false;
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(withBasePath(basePath, "/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          provider,
           model,
           messages: requestMessages.map(
             ({ role, content: text, attachments: files }, index) => ({
@@ -911,6 +898,10 @@ export function ChatShell({
         if (event.type === "error") throw new Error(event.message);
         receivedAny = true;
         if (event.type === "tool") extension?.onToolEvent?.(event);
+        if (event.type === "artifact") {
+          extension?.onArtifact?.(event);
+          return;
+        }
         if (event.type === "text") receivedText += event.delta;
         updateActive((conversation) => ({
           ...conversation,
@@ -1019,6 +1010,10 @@ export function ChatShell({
 
   async function addImages(files: FileList | null) {
     if (!files?.length) return;
+    if (!modelSupportsImages) {
+      toast.error("The selected model does not support image attachments.");
+      return;
+    }
     const available = 3 - attachments.length;
     if (available <= 0) {
       toast.error("You can attach up to three images.");
@@ -1048,20 +1043,11 @@ export function ChatShell({
 
   function selectModel(id: string) {
     setModel(id);
-    localStorage.setItem(modelKey(provider), id);
-  }
-
-  function selectProvider(nextProvider: Provider) {
-    if (nextProvider === provider) return;
-    setProvider(nextProvider);
-    localStorage.setItem(PROVIDER_KEY, nextProvider);
-    const catalog = fallbackModels(nextProvider);
-    const saved = localStorage.getItem(modelKey(nextProvider));
-    setModel(
-      saved && catalog.some((item) => item.id === saved)
-        ? saved
-        : catalog[0].id,
-    );
+    localStorage.setItem(MODEL_KEY, id);
+    if (attachments.length && !openRouterModelSupportsImages(id)) {
+      setAttachments([]);
+      toast.info("Attachments were removed because that model is text-only.");
+    }
   }
 
   async function copy(message: Message) {
@@ -1106,7 +1092,8 @@ export function ChatShell({
     onToggle: () => setSidebarCollapsed((current) => !current),
     onToggleTheme: () =>
       setTheme(resolvedTheme === "dark" ? "light" : "dark"),
-    onSignOut: () => void signOut({ redirectUrl: "/login" }),
+    onSignOut: () =>
+      void signOut({ redirectUrl: withBasePath(basePath, "/login") }),
     resolvedTheme,
     themeMounted,
   };
@@ -1166,10 +1153,15 @@ export function ChatShell({
             disabled={
               configurationStatus !== "ready" ||
               streaming ||
+              !modelSupportsImages ||
               attachments.length >= 3
             }
             size="icon-sm"
-            tooltip="Attach images"
+            tooltip={
+              modelSupportsImages
+                ? "Attach images"
+                : "Selected model is text-only"
+            }
             onClick={() => fileInputRef.current?.click()}
           >
             <Plus className="size-5" />
@@ -1209,28 +1201,9 @@ export function ChatShell({
                 align="end"
                 className="max-h-none w-80 overflow-hidden rounded-2xl bg-popover/55 p-2 shadow-lg backdrop-blur-xl"
               >
-                <div aria-label="Model provider" className="mb-2 grid grid-cols-2 gap-1 px-1" role="group">
-                  {(["ollama", "cursor"] as const).map((item) => (
-                    <Button
-                      aria-label={item === "cursor" ? "Cursor" : "Ollama Cloud"}
-                      aria-pressed={provider === item}
-                      className="h-9 w-full rounded-lg"
-                      disabled={availableProviders?.[item] === false}
-                      key={item}
-                      size="icon-sm"
-                      variant={provider === item ? "secondary" : "ghost"}
-                      onClick={() => selectProvider(item)}
-                    >
-                      {item === "cursor" ? (
-                        <Cursor className="size-5" />
-                      ) : (
-                        <Ollama className="size-5" />
-                      )}
-                      <span className="sr-only">
-                        {item === "cursor" ? "Cursor" : "Ollama Cloud"}
-                      </span>
-                    </Button>
-                  ))}
+                <div className="mb-2 flex items-center gap-2 px-2 py-1 text-xs font-semibold text-muted-foreground">
+                  <OpenRouter className="size-4" />
+                  OpenRouter
                 </div>
                 <ScrollArea className="h-[min(28rem,calc(var(--available-height)-1rem))]">
                   <div className="pr-2">
@@ -1240,7 +1213,7 @@ export function ChatShell({
                         key={item.id}
                         onClick={() => selectModel(item.id)}
                       >
-                        <ModelProviderIcon modelId={item.id} provider={provider} />
+                        <ModelProviderIcon modelId={item.id} />
                         <span className="min-w-0 flex-1 truncate font-semibold">
                           {item.displayName}
                         </span>
@@ -1267,6 +1240,7 @@ export function ChatShell({
   );
 
   return (
+    <ChatBasePathContext.Provider value={basePath}>
     <main className="flex h-dvh overflow-hidden bg-background text-foreground">
       <Dialog
         open={renameTarget !== null}
@@ -1613,12 +1587,12 @@ export function ChatShell({
                 {configurationStatus === "checking"
                   ? "Connecting"
                   : configurationStatus === "missing"
-                    ? "Cursor API key required"
+                    ? "OpenRouter API key required"
                     : "Eve is offline"}
               </AlertTitle>
               <AlertDescription className="sr-only">
                 {configurationStatus === "missing"
-                  ? "Add CURSOR_API_KEY and restart or redeploy."
+                  ? "Add OPENROUTER_API_KEY and restart or redeploy."
                   : "The API is unavailable."}
               </AlertDescription>
             </Alert>
@@ -1832,5 +1806,6 @@ export function ChatShell({
         </div>
       </section>
     </main>
+    </ChatBasePathContext.Provider>
   );
 }
